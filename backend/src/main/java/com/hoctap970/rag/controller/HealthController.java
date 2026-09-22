@@ -1,7 +1,8 @@
 package com.hoctap970.rag.controller;
 
-import java.util.Map;
-
+import com.hoctap970.rag.dto.HealthResponse;
+import com.hoctap970.rag.service.GeminiModelProvider;
+import com.hoctap970.rag.service.RagService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -10,11 +11,22 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api")
 public class HealthController {
 
+    private final GeminiModelProvider modelProvider;
+    private final RagService ragService;
+
+    public HealthController(GeminiModelProvider modelProvider, RagService ragService) {
+        this.modelProvider = modelProvider;
+        this.ragService = ragService;
+    }
+
     @GetMapping("/health")
-    public Map<String, String> health() {
-        return Map.of(
-                "status", "UP",
-                "application", "rag-document-assistant"
+    public HealthResponse health() {
+        return new HealthResponse(
+                "UP",
+                "rag-document-assistant",
+                modelProvider.isConfigured(),
+                ragService.documentCount(),
+                ragService.chunkCount()
         );
     }
 }

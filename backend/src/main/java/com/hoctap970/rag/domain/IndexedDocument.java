@@ -1,10 +1,11 @@
-package com.hoctap970.rag.dto;
+package com.hoctap970.rag.domain;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
-public record UploadResponse(
-        UUID documentId,
+public record IndexedDocument(
+        UUID id,
         String fileName,
         String contentType,
         long size,
@@ -12,6 +13,6 @@ public record UploadResponse(
         int sectionCount,
         int chunkCount,
         Instant uploadedAt,
-        String message
+        List<String> embeddingIds
 ) {
 }

@@ -26,3 +26,15 @@ replay_pid*
 # IntelliJ IDEA
 .idea/
 *.iml
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Frontend tooling (if introduced later)
+node_modules/

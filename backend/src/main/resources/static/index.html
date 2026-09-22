@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Ứng dụng hỏi đáp tài liệu PDF và Word bằng Retrieval-Augmented Generation">
+    <title>RAG Document Assistant</title>
+    <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="app-shell">
+    <header class="topbar">
+        <a class="brand" href="/" aria-label="Trang chủ RAG Document Assistant">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img">
+                    <path d="M6 2h8l4 4v16H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/>
+                    <path d="M14 2v5h5M8 12h7M8 16h5"/>
+                </svg>
+            </span>
+            <span>
+                <strong>RAG Document Assistant</strong>
+                <small>Hỏi đáp tài liệu có dẫn nguồn</small>
+            </span>
+        </a>
+        <div id="serviceStatus" class="status-pill" aria-live="polite">
+            <span class="status-dot"></span>
+            <span>Đang kết nối</span>
+        </div>
+    </header>
+
+    <div id="configBanner" class="config-banner hidden" role="alert">
+        <strong>Chưa cấu hình Gemini API key.</strong>
+        Thêm biến môi trường <code>GEMINI_API_KEY</code> vào Run Configuration của IntelliJ rồi chạy lại ứng dụng.
+    </div>
+
+    <main class="workspace">
+        <aside class="sidebar" aria-label="Quản lý tài liệu">
+            <section class="panel upload-panel">
+                <div class="section-heading">
+                    <div>
+                        <span class="eyebrow">Bước 1</span>
+                        <h1>Tải tài liệu</h1>
+                    </div>
+                    <span class="format-badge">PDF · DOC · DOCX</span>
+                </div>
+
+                <form id="uploadForm">
+                    <label id="dropZone" class="drop-zone" for="fileInput">
+                        <span class="upload-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/>
+                            </svg>
+                        </span>
+                        <strong id="dropTitle">Chọn hoặc thả tệp vào đây</strong>
+                        <span id="dropHint">Tối đa 10 MB cho mỗi tệp</span>
+                        <input id="fileInput" name="file" type="file" accept=".pdf,.doc,.docx" hidden>
+                    </label>
+                    <button id="uploadButton" class="button button-primary button-full" type="submit">
+                        <span class="button-label">Đọc và tạo vector</span>
+                        <span class="spinner hidden" aria-hidden="true"></span>
+                    </button>
+                </form>
+            </section>
+
+            <section class="panel document-panel">
+                <div class="section-heading compact">
+                    <div>
+                        <span class="eyebrow">Bộ nhớ RAM</span>
+                        <h2>Tài liệu đã nạp</h2>
+                    </div>
+                    <button id="clearButton" class="button button-ghost button-small" type="button">Xóa hết</button>
+                </div>
+
+                <div class="stats" aria-label="Thống kê dữ liệu">
+                    <div><strong id="documentCount">0</strong><span>Tài liệu</span></div>
+                    <div><strong id="chunkCount">0</strong><span>Đoạn văn</span></div>
+                </div>
+
+                <div id="documentList" class="document-list" aria-live="polite">
+                    <div class="empty-list">Chưa có tài liệu nào.</div>
+                </div>
+                <p class="memory-note">Dữ liệu sẽ bị xóa khi ứng dụng dừng vì vector đang được lưu trong RAM.</p>
+            </section>
+        </aside>
+
+        <section class="chat-panel" aria-label="Hỏi đáp tài liệu">
+            <div class="chat-header">
+                <div>
+                    <span class="eyebrow">Bước 2</span>
+                    <h2>Đặt câu hỏi</h2>
+                </div>
+                <span class="citation-badge">Top 5 nguồn liên quan</span>
+            </div>
+
+            <div id="messageList" class="message-list" aria-live="polite">
+                <div id="welcome" class="welcome-card">
+                    <div class="welcome-icon" aria-hidden="true">✦</div>
+                    <h3>Hỏi đúng nội dung trong tài liệu</h3>
+                    <p>Ứng dụng tìm các đoạn liên quan, gửi ngữ cảnh cho Gemini và trả về nguồn để bạn kiểm chứng.</p>
+                    <div class="prompt-grid">
+                        <button class="prompt-chip" type="button">Tài liệu nói về chủ đề chính nào?</button>
+                        <button class="prompt-chip" type="button">Hãy tóm tắt các ý quan trọng.</button>
+                        <button class="prompt-chip" type="button">Có những khái niệm nào cần ghi nhớ?</button>
+                        <button class="prompt-chip" type="button">Kết luận của tài liệu là gì?</button>
+                    </div>
+                </div>
+            </div>
+
+            <form id="chatForm" class="composer">
+                <label class="sr-only" for="questionInput">Câu hỏi</label>
+                <textarea id="questionInput" rows="1" maxlength="2000"
+                          placeholder="Tải tài liệu lên rồi nhập câu hỏi…"></textarea>
+                <button id="askButton" class="send-button" type="submit" aria-label="Gửi câu hỏi">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m4 4 17 8-17 8 3-8-3-8Zm3 8h14"/>
+                    </svg>
+                </button>
+                <div class="composer-hint">Enter để gửi · Shift + Enter để xuống dòng</div>
+            </form>
+        </section>
+    </main>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="/js/app.js" defer></script>
+</body>
+</html>

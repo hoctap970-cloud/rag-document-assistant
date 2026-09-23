@@ -111,7 +111,7 @@ Không. Spring đọc `GEMINI_API_KEY` từ biến môi trường. `.env` bị G
 | Banner báo thiếu key | Dừng app, thêm `GEMINI_API_KEY` vào Run Configuration, chạy lại |
 | Port 8080 đang dùng | Dừng app cũ hoặc thêm `server.port=8081`, mở port mới |
 | Upload báo 502 | Kiểm tra Internet, API key và quota Gemini |
-| PDF báo không có chữ | PDF là bản scan; đổi sang tài liệu có text hoặc DOCX |
+| PDF báo không trích xuất được chữ | PDF có thể là bản scan hoặc bản in với chữ đã chuyển thành hình/nét vẽ; dùng bản có thể chọn/copy chữ, DOCX hoặc OCR trước khi tải lên |
 | Không có nguồn phù hợp | Hỏi bằng từ khóa gần tài liệu hoặc hạ `app.rag.min-score` một chút |
 | App restart mất tài liệu | Upload lại; đây là hành vi đúng của vector store trong RAM |
 | Build lần đầu chậm | Maven đang tải dependency; chuẩn bị trước khi lên lớp |

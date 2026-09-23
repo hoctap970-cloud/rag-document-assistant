@@ -188,7 +188,7 @@ Các giá trị nằm trong `backend/src/main/resources/application.properties`:
 ## Giới hạn hiện tại
 
 - Vector và metadata được lưu trong RAM theo đúng yêu cầu đề bài; dừng ứng dụng sẽ mất dữ liệu.
-- PDF chỉ chứa ảnh quét cần OCR, phiên bản này sẽ báo không tìm thấy chữ.
+- PDF scan hoặc bản in có chữ đã chuyển thành hình/nét vẽ không có lớp chữ để lập chỉ mục. Hãy dùng PDF có thể chọn/copy chữ, tài liệu DOC/DOCX, hoặc OCR trước khi tải lên.
 - Việc nhận diện mục dựa trên tiêu đề được trích xuất từ tài liệu. Với tài liệu định dạng kém, nguồn có thể hiện `Nội dung chính`.
 - Chất lượng trả lời phụ thuộc nội dung tài liệu, cách đặt câu hỏi, Gemini API và hạn mức của tài khoản.
 - Đây là ứng dụng demo cục bộ, chưa có đăng nhập và phân quyền người dùng.

@@ -64,6 +64,18 @@ flowchart LR
 | Build | Maven Wrapper 3.9.16 |
 | CI | GitHub Actions |
 
+## Frontend nằm ở đâu?
+
+Frontend không có thư mục dự án riêng: Spring Boot phục vụ trực tiếp các file trong `backend/src/main/resources/static`.
+
+| File | Bạn sửa gì ở đây? |
+|---|---|
+| `static/index.html` | Chữ, các khu vực trên trang, biểu mẫu và cửa sổ xem nguồn |
+| `static/css/app.css` | Màu sắc, kích thước, bố cục, hiệu ứng và giao diện điện thoại |
+| `static/js/app.js` | Các thao tác upload, hỏi đáp, trạng thái, danh sách tài liệu và mở nguồn |
+
+Thiết kế hiện tại có phần giới thiệu ba bước, thư viện tài liệu, khung trò chuyện và cửa sổ kiểm chứng nguồn. Toàn bộ dùng HTML/CSS/JavaScript thuần, không cần chạy thêm npm hay một máy chủ frontend. Sau khi sửa FE, hãy chạy lại `BackendApplication` trong IntelliJ rồi tải lại `http://localhost:8080` để xem bản mới.
+
 ## Yêu cầu trước khi chạy
 
 - JDK 21.

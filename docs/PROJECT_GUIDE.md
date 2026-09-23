@@ -204,7 +204,7 @@ Trả trạng thái backend, trạng thái cấu hình Gemini, số tài liệu 
 Chuyển exception thành HTTP response thống nhất:
 
 - 400: dữ liệu không hợp lệ.
-- 404: không tìm thấy tài liệu.
+- 404: không tìm thấy tài liệu hoặc tài nguyên tĩnh. Thiếu favicon hay đường dẫn không tồn tại không được báo thành lỗi 500.
 - 413: file trên 10 MB.
 - 422: Tika không đọc được tài liệu.
 - 502: Gemini/API bên ngoài lỗi.
@@ -313,11 +313,11 @@ Quản lý ba model theo kiểu lazy singleton:
 
 ### `static/index.html`
 
-Khung giao diện semantic gồm topbar, cảnh báo API key, form upload, danh sách tài liệu, vùng chat, gợi ý câu hỏi, cửa sổ `<dialog>` xem nguồn và toast. SVG được viết trực tiếp nên không phụ thuộc CDN.
+Khung giao diện semantic gồm topbar, phần giới thiệu ba bước, cảnh báo API key, form upload, danh sách tài liệu, vùng chat, gợi ý câu hỏi, cửa sổ `<dialog>` xem nguồn và toast. SVG được viết trực tiếp nên không phụ thuộc CDN. Bạn sửa chữ/bố cục trong file này, không sửa Java khi chỉ thay nội dung giao diện.
 
 ### `static/css/app.css`
 
-Thiết kế toàn bộ giao diện: màu, panel, drag/drop, trạng thái, chat bubble, source card dạng nút, cửa sổ xem nguồn, đoạn tô vàng, loading animation và breakpoint cho tablet/điện thoại.
+Thiết kế toàn bộ giao diện: màu, panel, drag/drop, trạng thái, chat bubble, source card dạng nút, cửa sổ xem nguồn, đoạn tô vàng, loading animation và breakpoint cho tablet/điện thoại. Biến màu nằm trong `:root`; quy tắc `@media` ở cuối file chuyển bố cục từ hai cột sang một cột trên màn hình nhỏ. Có `prefers-reduced-motion` để giảm chuyển động cho người cần.
 
 ### `static/js/app.js`
 
@@ -331,6 +331,7 @@ Thiết kế toàn bộ giao diện: màu, panel, drag/drop, trạng thái, chat
 - `appendMessage()` / `createSourceCard()`: dựng DOM bằng `textContent`, tránh chèn HTML từ câu trả lời AI; mỗi source card là nút mở tài liệu.
 - `openSource()` / `renderViewerChunks()`: gọi API bản chữ, dựng từng chunk theo thứ tự, tô vàng đúng `chunkIndex` và cuộn tới đó. Nếu tài liệu đã xóa thì hiện lỗi 404 thay vì nguồn sai.
 - `updateControls()`: khóa/mở nút theo trạng thái app.
+- `chooseFile()` xóa lựa chọn cũ khi file mới sai định dạng hoặc vượt 10 MB, tránh vô tình upload nhầm file trước đó. `refresh()` vô hiệu hóa các thao tác khi mất kết nối backend.
 
 ## 9. Kiểm thử
 

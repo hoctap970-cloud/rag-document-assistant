@@ -121,6 +121,23 @@
     </main>
 </div>
 
+<dialog id="sourceViewer" class="source-viewer" aria-labelledby="viewerTitle">
+    <div class="viewer-header">
+        <div>
+            <span class="eyebrow">Đối chiếu nguồn</span>
+            <h2 id="viewerTitle">Tài liệu</h2>
+            <p id="viewerSubtitle"></p>
+        </div>
+        <button id="closeViewer" class="viewer-close" type="button" aria-label="Đóng tài liệu">×</button>
+    </div>
+    <div class="viewer-toolbar">
+        <span id="viewerLocation"></span>
+        <a id="viewerOriginal" href="#" target="_blank" rel="noopener">Mở tệp gốc ↗</a>
+    </div>
+    <p class="viewer-note">Đây là bản chữ được trích xuất để tìm kiếm. Bố cục có thể khác tệp gốc; đoạn màu vàng chính là nguồn đã truy xuất.</p>
+    <div id="viewerContent" class="viewer-content"></div>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="/js/app.js" defer></script>
 </body>

@@ -26,6 +26,13 @@ const elements = {
     askButton: document.querySelector("#askButton"),
     messageList: document.querySelector("#messageList"),
     welcome: document.querySelector("#welcome"),
+    sourceViewer: document.querySelector("#sourceViewer"),
+    viewerTitle: document.querySelector("#viewerTitle"),
+    viewerSubtitle: document.querySelector("#viewerSubtitle"),
+    viewerLocation: document.querySelector("#viewerLocation"),
+    viewerOriginal: document.querySelector("#viewerOriginal"),
+    viewerContent: document.querySelector("#viewerContent"),
+    closeViewer: document.querySelector("#closeViewer"),
     toast: document.querySelector("#toast")
 };
 
@@ -254,7 +261,10 @@ function appendLoadingMessage() {
 }
 
 function createSourceCard(source, index) {
-    const card = documentNode("div", "source-card");
+    const card = documentNode("button", "source-card");
+    card.type = "button";
+    card.title = "Bấm để xem đoạn này trong tài liệu";
+    card.setAttribute("aria-label", `Xem nguồn ${index + 1}, đoạn ${source.chunkIndex} trong ${source.fileName}`);
     const header = documentNode("div", "source-header");
     const title = documentNode(
         "strong",
@@ -264,8 +274,62 @@ function createSourceCard(source, index) {
     title.title = `${source.fileName} — ${source.section}`;
     const score = documentNode("span", "source-score", `${Math.round(source.score * 100)}%`);
     header.append(title, score);
-    card.append(header, documentNode("p", "", `Đoạn ${source.chunkIndex}: ${source.excerpt}`));
+    card.append(
+        header,
+        documentNode("p", "", `Đoạn ${source.chunkIndex}: ${source.excerpt}`),
+        documentNode("span", "source-open-hint", "Xem trong tài liệu →")
+    );
+    card.addEventListener("click", () => openSource(source));
     return card;
+}
+
+let viewerRequest = 0;
+async function openSource(source) {
+    const request = ++viewerRequest;
+    elements.viewerTitle.textContent = source.fileName;
+    elements.viewerSubtitle.textContent = "Đang mở bản chữ của tài liệu…";
+    elements.viewerLocation.textContent = `Đoạn ${source.chunkIndex} · ${source.section}`;
+    elements.viewerOriginal.href = `/api/documents/${encodeURIComponent(source.documentId)}/original`;
+    elements.viewerContent.replaceChildren();
+    elements.sourceViewer.showModal();
+
+    try {
+        const content = await api(`/api/documents/${encodeURIComponent(source.documentId)}/content`);
+        if (request !== viewerRequest || !elements.sourceViewer.open) return;
+        elements.viewerSubtitle.textContent = `${content.chunks.length} đoạn trong bản chữ trích xuất`;
+        renderViewerChunks(content.chunks, source.chunkIndex);
+    } catch (error) {
+        if (request !== viewerRequest) return;
+        elements.sourceViewer.close();
+        showToast(error.message, true);
+    }
+}
+
+function renderViewerChunks(chunks, targetIndex) {
+    const fragment = document.createDocumentFragment();
+    let currentSection = null;
+    let selectedChunk = null;
+
+    chunks.forEach(chunk => {
+        if (chunk.section !== currentSection) {
+            currentSection = chunk.section;
+            fragment.append(documentNode("h3", "viewer-section", currentSection));
+        }
+        const selected = chunk.chunkIndex === targetIndex;
+        const block = documentNode("article", `viewer-chunk${selected ? " selected" : ""}`);
+        block.append(documentNode("span", "viewer-chunk-number", `Đoạn ${chunk.chunkIndex}`));
+        const text = documentNode(selected ? "mark" : "p", "viewer-chunk-text", chunk.text);
+        block.append(text);
+        fragment.append(block);
+        if (selected) selectedChunk = block;
+    });
+
+    elements.viewerContent.replaceChildren(fragment);
+    if (selectedChunk) {
+        requestAnimationFrame(() => selectedChunk.scrollIntoView({ block: "center", behavior: "auto" }));
+    } else {
+        elements.viewerLocation.textContent = "Không tìm thấy đoạn nguồn trong tài liệu này.";
+    }
 }
 
 function updateControls() {
@@ -342,6 +406,8 @@ function formatTime(isoDate) {
 elements.uploadForm.addEventListener("submit", uploadSelectedFile);
 elements.fileInput.addEventListener("change", event => chooseFile(event.target.files[0]));
 elements.clearButton.addEventListener("click", clearDocuments);
+elements.closeViewer.addEventListener("click", () => elements.sourceViewer.close());
+elements.sourceViewer.addEventListener("close", () => { viewerRequest++; });
 elements.chatForm.addEventListener("submit", askQuestion);
 elements.questionInput.addEventListener("input", resizeTextarea);
 elements.questionInput.addEventListener("keydown", event => {

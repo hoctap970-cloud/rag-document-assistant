@@ -58,6 +58,10 @@ async function refresh() {
         renderStatus();
         renderDocuments();
     } catch (error) {
+        state.health = null;
+        state.documents = [];
+        renderDocuments();
+        elements.configBanner.classList.add("hidden");
         elements.serviceStatus.className = "status-pill error";
         elements.serviceStatus.lastElementChild.textContent = "Mất kết nối";
         showToast(error.message, true);
@@ -147,10 +151,14 @@ function chooseFile(file) {
     }
     const extension = extensionOf(file.name);
     if (!["PDF", "DOC", "DOCX"].includes(extension)) {
+        resetFileSelection();
+        updateControls();
         showToast("Chỉ hỗ trợ tệp PDF, DOC và DOCX.", true);
         return;
     }
     if (file.size > 10 * 1024 * 1024) {
+        resetFileSelection();
+        updateControls();
         showToast("Tệp vượt quá giới hạn 10 MB.", true);
         return;
     }
@@ -165,7 +173,7 @@ function resetFileSelection() {
     state.selectedFile = null;
     elements.fileInput.value = "";
     elements.dropTitle.textContent = "Chọn hoặc thả tệp vào đây";
-    elements.dropHint.textContent = "Tối đa 10 MB cho mỗi tệp";
+    elements.dropHint.textContent = "PDF, DOC, DOCX · tối đa 10 MB";
 }
 
 async function deleteDocument(document) {
@@ -339,16 +347,19 @@ function updateControls() {
     elements.uploadLabel.textContent = state.uploading ? "Đang xử lý tài liệu…" : "Đọc và tạo vector";
     elements.uploadSpinner.classList.toggle("hidden", !state.uploading);
     elements.fileInput.disabled = state.uploading;
-    elements.clearButton.disabled = state.uploading || state.asking || !hasDocuments;
-    elements.questionInput.disabled = state.asking || !hasDocuments || !configured;
-    elements.askButton.disabled = state.asking || !hasDocuments || !configured;
+    elements.clearButton.disabled = state.uploading || state.asking || !hasDocuments || !state.health;
+    elements.questionInput.disabled = state.uploading || state.asking || !hasDocuments || !configured;
+    elements.askButton.disabled = state.uploading || state.asking || !hasDocuments || !configured;
     elements.questionInput.placeholder = !configured
         ? "Cần cấu hình GEMINI_API_KEY…"
         : hasDocuments
             ? "Hỏi một điều có trong tài liệu…"
             : "Tải tài liệu lên rồi nhập câu hỏi…";
     document.querySelectorAll(".prompt-chip").forEach(button => {
-        button.disabled = !hasDocuments || !configured || state.asking;
+        button.disabled = !hasDocuments || !configured || state.asking || state.uploading;
+    });
+    document.querySelectorAll(".delete-button").forEach(button => {
+        button.disabled = state.uploading || state.asking || !state.health;
     });
 }
 
@@ -405,6 +416,12 @@ function formatTime(isoDate) {
 
 elements.uploadForm.addEventListener("submit", uploadSelectedFile);
 elements.fileInput.addEventListener("change", event => chooseFile(event.target.files[0]));
+elements.dropZone.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        elements.fileInput.click();
+    }
+});
 elements.clearButton.addEventListener("click", clearDocuments);
 elements.closeViewer.addEventListener("click", () => elements.sourceViewer.close());
 elements.sourceViewer.addEventListener("close", () => { viewerRequest++; });

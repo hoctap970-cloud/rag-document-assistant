@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Ứng dụng hỏi đáp tài liệu PDF và Word bằng Retrieval-Augmented Generation">
     <title>RAG Document Assistant</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -18,13 +19,16 @@
                 </svg>
             </span>
             <span>
+                <span class="brand-overline">JAVASPRING 2 · DOCUMENT INTELLIGENCE</span>
                 <strong>RAG Document Assistant</strong>
-                <small>Hỏi đáp tài liệu có dẫn nguồn</small>
             </span>
         </a>
-        <div id="serviceStatus" class="status-pill" aria-live="polite">
-            <span class="status-dot"></span>
-            <span>Đang kết nối</span>
+        <div class="topbar-right">
+            <span class="session-label">PHIÊN LÀM VIỆC CỤC BỘ</span>
+            <div id="serviceStatus" class="status-pill" aria-live="polite">
+                <span class="status-dot"></span>
+                <span>Đang kết nối</span>
+            </div>
         </div>
     </header>
 
@@ -33,26 +37,41 @@
         Thêm biến môi trường <code>GEMINI_API_KEY</code> vào Run Configuration của IntelliJ rồi chạy lại ứng dụng.
     </div>
 
+    <section class="page-intro" aria-label="Giới thiệu ứng dụng">
+        <div class="intro-copy">
+            <span class="intro-kicker"><span aria-hidden="true">✦</span> TỦ SÁCH TRI THỨC CỦA BẠN</span>
+            <h1>Hỏi tài liệu. <em>Nhận câu trả lời có căn cứ.</em></h1>
+            <p>Tải PDF hoặc Word lên, đặt câu hỏi bằng ngôn ngữ tự nhiên và mở ngay đoạn nguồn để kiểm chứng.</p>
+        </div>
+        <div class="intro-flow" aria-label="Ba bước sử dụng">
+            <div><span>01</span><strong>Tải tài liệu</strong></div>
+            <i aria-hidden="true"></i>
+            <div><span>02</span><strong>Đặt câu hỏi</strong></div>
+            <i aria-hidden="true"></i>
+            <div><span>03</span><strong>Kiểm chứng nguồn</strong></div>
+        </div>
+    </section>
+
     <main class="workspace">
         <aside class="sidebar" aria-label="Quản lý tài liệu">
             <section class="panel upload-panel">
                 <div class="section-heading">
                     <div>
-                        <span class="eyebrow">Bước 1</span>
-                        <h1>Tải tài liệu</h1>
+                        <span class="eyebrow">01 / NGUỒN DỮ LIỆU</span>
+                        <h2>Tải tài liệu</h2>
                     </div>
                     <span class="format-badge">PDF · DOC · DOCX</span>
                 </div>
 
                 <form id="uploadForm">
-                    <label id="dropZone" class="drop-zone" for="fileInput">
+                    <label id="dropZone" class="drop-zone" for="fileInput" tabindex="0" role="button" aria-label="Chọn tài liệu PDF, DOC hoặc DOCX">
                         <span class="upload-icon" aria-hidden="true">
                             <svg viewBox="0 0 24 24">
                                 <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/>
                             </svg>
                         </span>
                         <strong id="dropTitle">Chọn hoặc thả tệp vào đây</strong>
-                        <span id="dropHint">Tối đa 10 MB cho mỗi tệp</span>
+                        <span id="dropHint">PDF, DOC, DOCX · tối đa 10 MB</span>
                         <input id="fileInput" name="file" type="file" accept=".pdf,.doc,.docx" hidden>
                     </label>
                     <button id="uploadButton" class="button button-primary button-full" type="submit">
@@ -60,12 +79,13 @@
                         <span class="spinner hidden" aria-hidden="true"></span>
                     </button>
                 </form>
+                <p class="upload-privacy"><span aria-hidden="true">✳</span> Tệp và vector chỉ nằm trong RAM của phiên này.</p>
             </section>
 
             <section class="panel document-panel">
                 <div class="section-heading compact">
                     <div>
-                        <span class="eyebrow">Bộ nhớ RAM</span>
+                        <span class="eyebrow">THƯ VIỆN CỦA BẠN</span>
                         <h2>Tài liệu đã nạp</h2>
                     </div>
                     <button id="clearButton" class="button button-ghost button-small" type="button">Xóa hết</button>
@@ -86,17 +106,25 @@
         <section class="chat-panel" aria-label="Hỏi đáp tài liệu">
             <div class="chat-header">
                 <div>
-                    <span class="eyebrow">Bước 2</span>
-                    <h2>Đặt câu hỏi</h2>
+                    <span class="eyebrow">02 / HỎI ĐÁP CÓ DẪN NGUỒN</span>
+                    <h2>Trò chuyện với tài liệu</h2>
+                    <p>Đặt câu hỏi, xem câu trả lời và mở từng đoạn được truy xuất.</p>
                 </div>
-                <span class="citation-badge">Top 5 nguồn liên quan</span>
+                <span class="citation-badge"><span aria-hidden="true">✦</span> TỐI ĐA 5 NGUỒN</span>
             </div>
 
             <div id="messageList" class="message-list" aria-live="polite">
                 <div id="welcome" class="welcome-card">
-                    <div class="welcome-icon" aria-hidden="true">✦</div>
-                    <h3>Hỏi đúng nội dung trong tài liệu</h3>
-                    <p>Ứng dụng tìm các đoạn liên quan, gửi ngữ cảnh cho Gemini và trả về nguồn để bạn kiểm chứng.</p>
+                    <div class="welcome-art" aria-hidden="true">
+                        <span class="art-halo"></span>
+                        <span class="art-sheet art-sheet-back"></span>
+                        <span class="art-sheet art-sheet-front"><i></i><i></i><i></i></span>
+                        <span class="art-spark">✦</span>
+                        <span class="art-answer">✓</span>
+                    </div>
+                    <span class="welcome-label">SẴN SÀNG KHÁM PHÁ</span>
+                    <h3>Câu trả lời nằm<br><em>ngay trong tài liệu.</em></h3>
+                    <p>Chọn một gợi ý bên dưới hoặc viết câu hỏi của riêng bạn. Mỗi câu trả lời đều có đoạn nguồn để đối chiếu.</p>
                     <div class="prompt-grid">
                         <button class="prompt-chip" type="button">Tài liệu nói về chủ đề chính nào?</button>
                         <button class="prompt-chip" type="button">Hãy tóm tắt các ý quan trọng.</button>
@@ -109,13 +137,13 @@
             <form id="chatForm" class="composer">
                 <label class="sr-only" for="questionInput">Câu hỏi</label>
                 <textarea id="questionInput" rows="1" maxlength="2000"
-                          placeholder="Tải tài liệu lên rồi nhập câu hỏi…"></textarea>
+                          placeholder="Bạn muốn tìm hiểu điều gì trong tài liệu?"></textarea>
                 <button id="askButton" class="send-button" type="submit" aria-label="Gửi câu hỏi">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="m4 4 17 8-17 8 3-8-3-8Zm3 8h14"/>
                     </svg>
                 </button>
-                <div class="composer-hint">Enter để gửi · Shift + Enter để xuống dòng</div>
+                <div class="composer-hint">↵ Enter để gửi <span>·</span> Shift + Enter để xuống dòng</div>
             </form>
         </section>
     </main>

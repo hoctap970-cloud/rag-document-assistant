@@ -35,7 +35,7 @@ Khi người dùng nhấn **Đọc và tạo vector**:
 7. `DocumentSplitters.recursive()` chia từng mục thành chunk 900 đơn vị, overlap 120.
 8. Mỗi `TextSegment` nhận metadata: `document_id`, `file_name`, `section`, `chunk_index`, `title`.
 9. `GeminiModelProvider.documentEmbeddingModel()` dùng task type `RETRIEVAL_DOCUMENT` để tạo vector 768 chiều.
-10. `RagService` lưu cặp vector + `TextSegment` vào `InMemoryEmbeddingStore` và lưu thông tin tài liệu vào `ConcurrentHashMap`.
+10. `RagService` lưu cặp vector + `TextSegment` vào `InMemoryEmbeddingStore`; metadata, các đoạn chữ và bản gốc được giữ trong `ConcurrentHashMap` để mở nguồn.
 11. API trả `UploadResponse`; frontend cập nhật danh sách và thống kê.
 
 Nếu bước tạo embedding lỗi, tài liệu không được thêm vào danh sách. Nếu việc ghi vector bị lỗi giữa chừng, các vector vừa ghi được xóa để tránh dữ liệu nửa vời.
@@ -52,7 +52,8 @@ Khi người dùng gửi câu hỏi:
 6. Nếu có kết quả, `buildPrompt()` ghép câu hỏi và các chunk thành prompt có nhãn `[Nguồn n]`.
 7. `gemini-2.5-flash` trả lời với temperature 0.1 để giảm tính ngẫu nhiên.
 8. `toSources()` tạo danh sách nguồn từ metadata thật của các chunk. Nguồn này không phụ thuộc model tự kể ra.
-9. Frontend hiển thị câu trả lời và các thẻ nguồn để đối chiếu.
+9. Frontend hiển thị câu trả lời và các thẻ nguồn để đối chiếu. Mỗi nguồn chứa `documentId` và `chunkIndex` do backend gắn trực tiếp từ kết quả search.
+10. Khi bấm nguồn, frontend gọi `GET /api/documents/{id}/content`, dựng bản chữ, cuộn đến chunk tương ứng và tô vàng. `GET /api/documents/{id}/original` phục vụ tệp gốc từ RAM.
 
 ## 4. Cây thư mục
 
@@ -183,6 +184,8 @@ Record ánh xạ nhóm `app.rag`: chunk size, overlap, giới hạn chunk, số 
 
 - `upload()`: `POST /api/documents/upload`.
 - `list()`: `GET /api/documents`.
+- `content()`: `GET /api/documents/{id}/content`, trả các đoạn chữ theo đúng thứ tự trong tài liệu.
+- `original()`: `GET /api/documents/{id}/original`, mở PDF hoặc tải DOC/DOCX gốc. Backend xác định kiểu trả về từ đuôi tệp đã được chấp nhận, đặt `nosniff` và `no-store`.
 - `delete()`: xóa một tài liệu theo UUID.
 - `clear()`: xóa mọi tài liệu.
 
@@ -214,7 +217,11 @@ Lỗi server được ghi vào log nhưng response không lộ stack trace.
 
 #### `IndexedDocument.java`
 
-Mô hình nội bộ của một tài liệu đã lập chỉ mục. Ngoài metadata hiển thị, record giữ danh sách `embeddingIds` để xóa đúng vector của tài liệu.
+Mô hình nội bộ của một tài liệu đã lập chỉ mục. Ngoài metadata hiển thị, record giữ danh sách `embeddingIds` để xóa đúng vector, byte của tệp gốc và danh sách chunk để xem nguồn. Tất cả chỉ tồn tại trong RAM.
+
+#### `IndexedChunk.java`
+
+Một đoạn văn bản đã lập chỉ mục, gồm số thứ tự, tên mục và toàn văn. Cửa sổ xem nguồn dùng danh sách này để tô đúng đoạn.
 
 #### `SectionContent.java`
 
@@ -228,7 +235,8 @@ DTO là các record chỉ dùng để truyền dữ liệu qua ranh giới API:
 |---|---|
 | `ChatRequest.java` | Câu hỏi đầu vào; không rỗng, tối đa 2.000 ký tự |
 | `ChatResponse.java` | Câu hỏi, câu trả lời và danh sách nguồn |
-| `SourceReference.java` | Tên file, mục, số chunk, score và trích đoạn |
+| `SourceReference.java` | ID tài liệu, tên file, mục, số chunk, score và trích đoạn; ID nối nguồn với đúng tài liệu |
+| `DocumentContent.java` | ID, tên file và danh sách `IndexedChunk` trả về cho cửa sổ xem nguồn |
 | `UploadResponse.java` | Kết quả upload và thống kê indexing |
 | `DocumentSummary.java` | Thông tin tài liệu an toàn để đưa lên UI |
 | `HealthResponse.java` | Trạng thái ứng dụng và số liệu trong RAM |
@@ -289,6 +297,7 @@ Quản lý ba model theo kiểu lazy singleton:
 - `upload()`: validate → parse → tách mục → chunk → embedding → lưu RAM.
 - `ask()`: validate → embedding câu hỏi → search → prompt → chat → nguồn.
 - `listDocuments()`: trả danh sách mới nhất trước.
+- `getDocument()` / `getDocumentContent()`: tìm tài liệu trong RAM và trả bản chữ để xem nguồn; 404 nếu tài liệu đã bị xóa.
 - `deleteDocument()`: xóa metadata và vector theo embedding ID.
 - `clearDocuments()`: xóa toàn bộ.
 - `createSegments()`: tạo chunk và metadata.
@@ -296,7 +305,7 @@ Quản lý ba model theo kiểu lazy singleton:
 - `addDocumentToStore()`: ghi vector cùng metadata tài liệu trong một vùng đồng bộ và rollback khi lỗi.
 - `search()`: tìm top-k theo min score.
 - `buildPrompt()`: đặt quy tắc chống trả lời ngoài ngữ cảnh.
-- `toSources()`: lấy nguồn từ metadata và rút gọn trích đoạn.
+- `toSources()`: lấy ID tài liệu và số chunk từ metadata thật, rồi rút gọn trích đoạn. Frontend dùng hai giá trị này để tô đúng đoạn, không dò bằng tên file vốn có thể trùng.
 
 `storeLock` bảo vệ `InMemoryEmbeddingStore` khi nhiều request upload, search hoặc delete cùng lúc. `ConcurrentHashMap` giữ danh sách tài liệu an toàn giữa các request.
 
@@ -304,11 +313,11 @@ Quản lý ba model theo kiểu lazy singleton:
 
 ### `static/index.html`
 
-Khung giao diện semantic gồm topbar, cảnh báo API key, form upload, danh sách tài liệu, vùng chat, gợi ý câu hỏi và toast. SVG được viết trực tiếp nên không phụ thuộc CDN.
+Khung giao diện semantic gồm topbar, cảnh báo API key, form upload, danh sách tài liệu, vùng chat, gợi ý câu hỏi, cửa sổ `<dialog>` xem nguồn và toast. SVG được viết trực tiếp nên không phụ thuộc CDN.
 
 ### `static/css/app.css`
 
-Thiết kế toàn bộ giao diện: màu, panel, drag/drop, trạng thái, chat bubble, source card, loading animation và breakpoint cho tablet/điện thoại.
+Thiết kế toàn bộ giao diện: màu, panel, drag/drop, trạng thái, chat bubble, source card dạng nút, cửa sổ xem nguồn, đoạn tô vàng, loading animation và breakpoint cho tablet/điện thoại.
 
 ### `static/js/app.js`
 
@@ -319,7 +328,8 @@ Thiết kế toàn bộ giao diện: màu, panel, drag/drop, trạng thái, chat
 - `chooseFile()`: kiểm tra phần mở rộng và 10 MB ở trình duyệt.
 - `deleteDocument()` / `clearDocuments()`: xóa dữ liệu sau khi xác nhận.
 - `askQuestion()`: gửi JSON và cập nhật chat.
-- `appendMessage()` / `createSourceCard()`: dựng DOM bằng `textContent`, tránh chèn HTML từ câu trả lời AI.
+- `appendMessage()` / `createSourceCard()`: dựng DOM bằng `textContent`, tránh chèn HTML từ câu trả lời AI; mỗi source card là nút mở tài liệu.
+- `openSource()` / `renderViewerChunks()`: gọi API bản chữ, dựng từng chunk theo thứ tự, tô vàng đúng `chunkIndex` và cuộn tới đó. Nếu tài liệu đã xóa thì hiện lỗi 404 thay vì nguồn sai.
 - `updateControls()`: khóa/mở nút theo trạng thái app.
 
 ## 9. Kiểm thử
@@ -335,6 +345,10 @@ Kiểm tra tiêu đề tiếng Việt, tiêu đề đánh số, chữ in hoa và
 ### `DocumentFileValidatorTests.java`
 
 Kiểm tra file hợp lệ, phần mở rộng không hỗ trợ và file rỗng.
+
+### `SourceViewerTests.java`
+
+Dùng model giả để kiểm tra upload → truy xuất nguồn → mở đúng tài liệu và chunk → lấy lại byte gốc → xóa rồi trả 404, không tốn Gemini API.
 
 ## 10. Những khái niệm cần hiểu khi trình bày
 

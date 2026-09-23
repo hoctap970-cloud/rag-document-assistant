@@ -14,6 +14,7 @@
 - Truy xuất tối đa 5 đoạn liên quan bằng độ tương đồng vector.
 - Sinh câu trả lời bằng `gemini-2.5-flash`, chỉ dựa trên ngữ cảnh truy xuất.
 - Hiển thị nguồn gồm tên tệp, tên mục, số đoạn, độ tương đồng và trích đoạn.
+- Bấm vào nguồn để mở bản chữ của tài liệu, tự cuộn đến đoạn liên quan và tô vàng; có thể mở/tải tệp gốc để đối chiếu.
 - Xem danh sách tài liệu, số đoạn và xóa dữ liệu khỏi RAM.
 - Trả lỗi API thống nhất, không làm lộ API key hoặc chi tiết nội bộ.
 - Giao diện responsive, chạy chung với backend nên chỉ cần khởi động một ứng dụng.
@@ -137,7 +138,7 @@ Biến môi trường trên chỉ có hiệu lực trong cửa sổ PowerShell h
 2. Nhấn **Đọc và tạo vector**.
 3. Chờ thông báo số vector đã tạo và kiểm tra tài liệu xuất hiện ở cột trái.
 4. Nhập câu hỏi có đáp án nằm trong tài liệu.
-5. Đọc câu trả lời và mở phần nguồn ngay dưới câu trả lời để đối chiếu.
+5. Đọc câu trả lời và bấm một nguồn bên dưới. Cửa sổ sẽ mở bản chữ trích xuất, cuộn đến đoạn được truy xuất và tô vàng đoạn đó. Chọn **Mở tệp gốc** nếu cần xem bố cục PDF/Word ban đầu.
 6. Dùng nút `×` để xóa một tài liệu hoặc **Xóa hết** để làm sạch RAM.
 
 ## API
@@ -147,6 +148,8 @@ Biến môi trường trên chỉ có hiệu lực trong cửa sổ PowerShell h
 | `GET` | `/api/health` | Trạng thái backend, Gemini, số tài liệu và số đoạn |
 | `POST` | `/api/documents/upload` | Nhận multipart field `file`, đọc và tạo vector |
 | `GET` | `/api/documents` | Danh sách tài liệu trong RAM |
+| `GET` | `/api/documents/{id}/content` | Bản chữ và các đoạn của tài liệu để đối chiếu nguồn |
+| `GET` | `/api/documents/{id}/original` | Mở PDF gốc hoặc tải Word gốc từ RAM |
 | `DELETE` | `/api/documents/{id}` | Xóa một tài liệu và các vector của nó |
 | `DELETE` | `/api/documents` | Xóa toàn bộ tài liệu và vector |
 | `POST` | `/api/chat` | Hỏi đáp với JSON `{ "question": "..." }` |
@@ -187,7 +190,8 @@ Các giá trị nằm trong `backend/src/main/resources/application.properties`:
 
 ## Giới hạn hiện tại
 
-- Vector và metadata được lưu trong RAM theo đúng yêu cầu đề bài; dừng ứng dụng sẽ mất dữ liệu.
+- Vector, bản chữ và tệp gốc được lưu trong RAM theo đúng yêu cầu đề bài; dừng ứng dụng sẽ mất dữ liệu. Tệp không được ghi vào repository hoặc ổ đĩa bởi ứng dụng.
+- Cửa sổ xem nguồn hiển thị bản chữ do Apache Tika trích xuất và chia đoạn, nên không giữ nguyên bố cục PDF/Word. Các đoạn kề nhau có thể lặp một ít chữ vì cấu hình overlap; nút **Mở tệp gốc** dùng để kiểm tra định dạng ban đầu.
 - PDF scan hoặc bản in có chữ đã chuyển thành hình/nét vẽ không có lớp chữ để lập chỉ mục. Hãy dùng PDF có thể chọn/copy chữ, tài liệu DOC/DOCX, hoặc OCR trước khi tải lên.
 - Việc nhận diện mục dựa trên tiêu đề được trích xuất từ tài liệu. Với tài liệu định dạng kém, nguồn có thể hiện `Nội dung chính`.
 - Chất lượng trả lời phụ thuộc nội dung tài liệu, cách đặt câu hỏi, Gemini API và hạn mức của tài khoản.
@@ -239,5 +243,5 @@ Sau đó tạo Pull Request trên GitHub, kiểm tra tab **Files changed** và *
 - API key chỉ được đọc từ biến môi trường `GEMINI_API_KEY` ở backend.
 - `.env` đã nằm trong `.gitignore`.
 - Frontend không nhận và không lưu API key.
-- Tệp tải lên chỉ được xử lý trong bộ nhớ; ứng dụng không ghi bản gốc xuống ổ đĩa.
+- Tệp tải lên, bản chữ và vector chỉ được giữ trong RAM; ứng dụng không ghi bản gốc xuống ổ đĩa. Xóa tài liệu hoặc dừng ứng dụng sẽ bỏ dữ liệu này.
 - Nếu lỡ đưa key lên GitHub, hãy thu hồi key đó ngay trong Google AI Studio và tạo key mới.

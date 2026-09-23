@@ -41,7 +41,7 @@ Có thể nói:
 2. Nhấn **Đọc và tạo vector**.
 3. Chỉ vào thông báo số vector.
 4. Giải thích cột trái cho biết số chunk đang nằm trong RAM.
-5. Nói rõ file gốc không được ghi xuống ổ đĩa và dữ liệu mất khi dừng app.
+5. Nói rõ file gốc được giữ trong RAM để xem lại, không được ghi xuống ổ đĩa và dữ liệu mất khi dừng app.
 
 ### Phần D — Năm câu hỏi chấm điểm (4–5 phút)
 
@@ -57,7 +57,8 @@ Sau mỗi câu:
 
 - Chỉ vào `[Nguồn n]` trong câu trả lời.
 - Chỉ vào tên file và tên mục trong source card.
-- Đọc một trích đoạn để chứng minh câu trả lời có căn cứ.
+- Bấm source card: bản chữ tài liệu mở ra, tự cuộn đến đoạn tô vàng. Chỉ vào đoạn đó để chứng minh câu trả lời có căn cứ.
+- Có thể bấm **Mở tệp gốc** để đối chiếu bố cục PDF/Word; bản chữ trong app không giữ nguyên định dạng.
 - Nếu score thấp bất thường, đặt lại câu hỏi dùng từ gần với tài liệu hơn.
 
 ### Phần E — Chứng minh giảm bịa thông tin (30 giây)
@@ -114,6 +115,7 @@ Không. Spring đọc `GEMINI_API_KEY` từ biến môi trường. `.env` bị G
 | PDF báo không trích xuất được chữ | PDF có thể là bản scan hoặc bản in với chữ đã chuyển thành hình/nét vẽ; dùng bản có thể chọn/copy chữ, DOCX hoặc OCR trước khi tải lên |
 | Không có nguồn phù hợp | Hỏi bằng từ khóa gần tài liệu hoặc hạ `app.rag.min-score` một chút |
 | App restart mất tài liệu | Upload lại; đây là hành vi đúng của vector store trong RAM |
+| Bấm nguồn báo không tìm thấy tài liệu | Tài liệu đã bị xóa hoặc app vừa khởi động lại; upload lại rồi hỏi lại |
 | Build lần đầu chậm | Maven đang tải dependency; chuẩn bị trước khi lên lớp |
 
 ## 5. Checklist cuối cùng

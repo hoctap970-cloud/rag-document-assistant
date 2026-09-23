@@ -1,5 +1,6 @@
 package com.hoctap970.rag.service;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -10,9 +11,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.hoctap970.rag.config.RagProperties;
+import com.hoctap970.rag.domain.IndexedChunk;
 import com.hoctap970.rag.domain.IndexedDocument;
 import com.hoctap970.rag.domain.SectionContent;
 import com.hoctap970.rag.dto.ChatResponse;
+import com.hoctap970.rag.dto.DocumentContent;
 import com.hoctap970.rag.dto.DocumentSummary;
 import com.hoctap970.rag.dto.SourceReference;
 import com.hoctap970.rag.dto.UploadResponse;
@@ -85,6 +88,7 @@ public class RagService {
         }
 
         List<Embedding> embeddings = embedDocument(segments);
+        byte[] originalBytes = readOriginalBytes(file);
         Instant uploadedAt = Instant.now();
         String contentType = file.getContentType() == null
                 ? "application/octet-stream"
@@ -99,7 +103,8 @@ public class RagService {
                 sections.size(),
                 uploadedAt,
                 embeddings,
-                segments
+                segments,
+                originalBytes
         );
 
         return new UploadResponse(
@@ -150,6 +155,19 @@ public class RagService {
                 .sorted(Comparator.comparing(IndexedDocument::uploadedAt).reversed())
                 .map(this::toSummary)
                 .toList();
+    }
+
+    public IndexedDocument getDocument(UUID documentId) {
+        IndexedDocument document = documents.get(documentId);
+        if (document == null) {
+            throw new NotFoundException("Không tìm thấy tài liệu có mã " + documentId);
+        }
+        return document;
+    }
+
+    public DocumentContent getDocumentContent(UUID documentId) {
+        IndexedDocument document = getDocument(documentId);
+        return new DocumentContent(document.id(), document.fileName(), document.chunks());
     }
 
     public void deleteDocument(UUID documentId) {
@@ -239,7 +257,8 @@ public class RagService {
             int sectionCount,
             Instant uploadedAt,
             List<Embedding> embeddings,
-            List<TextSegment> segments
+            List<TextSegment> segments,
+            byte[] originalBytes
     ) {
         List<String> ids = new ArrayList<>(segments.size());
         synchronized (storeLock) {
@@ -256,7 +275,15 @@ public class RagService {
                         sectionCount,
                         segments.size(),
                         uploadedAt,
-                        List.copyOf(ids)
+                        List.copyOf(ids),
+                        originalBytes,
+                        segments.stream()
+                                .map(segment -> new IndexedChunk(
+                                        segment.metadata().getInteger("chunk_index"),
+                                        segment.metadata().getString("section"),
+                                        segment.text()
+                                ))
+                                .toList()
                 );
                 documents.put(documentId, document);
                 return document;
@@ -325,6 +352,7 @@ public class RagService {
                 .map(match -> {
                     TextSegment segment = match.embedded();
                     return new SourceReference(
+                            UUID.fromString(segment.metadata().getString("document_id")),
                             segment.metadata().getString("file_name"),
                             segment.metadata().getString("section"),
                             segment.metadata().getInteger("chunk_index"),
@@ -350,5 +378,13 @@ public class RagService {
 
     private String abbreviate(String value, int maxLength) {
         return value.length() <= maxLength ? value : value.substring(0, maxLength - 1) + "…";
+    }
+
+    private byte[] readOriginalBytes(MultipartFile file) {
+        try {
+            return file.getBytes();
+        } catch (IOException exception) {
+            throw new DocumentProcessingException("Không thể lưu tệp gốc để xem nguồn.", exception);
+        }
     }
 }

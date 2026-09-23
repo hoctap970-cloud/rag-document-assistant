@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+
 public record IndexedDocument(
         UUID id,
         String fileName,
@@ -13,6 +14,8 @@ public record IndexedDocument(
         int sectionCount,
         int chunkCount,
         Instant uploadedAt,
-        List<String> embeddingIds
+        List<String> embeddingIds,
+        byte[] originalBytes,
+        List<IndexedChunk> chunks
 ) {
 }

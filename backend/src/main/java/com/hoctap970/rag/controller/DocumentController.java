@@ -1,13 +1,21 @@
 package com.hoctap970.rag.controller;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
+import com.hoctap970.rag.domain.IndexedDocument;
+import com.hoctap970.rag.dto.DocumentContent;
 import com.hoctap970.rag.dto.DocumentSummary;
 import com.hoctap970.rag.dto.MessageResponse;
 import com.hoctap970.rag.dto.UploadResponse;
 import com.hoctap970.rag.service.RagService;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,6 +43,29 @@ public class DocumentController {
     @GetMapping
     public List<DocumentSummary> list() {
         return ragService.listDocuments();
+    }
+
+    @GetMapping("/{documentId}/content")
+    public ResponseEntity<DocumentContent> content(@PathVariable UUID documentId) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(ragService.getDocumentContent(documentId));
+    }
+
+    @GetMapping("/{documentId}/original")
+    public ResponseEntity<byte[]> original(@PathVariable UUID documentId) {
+        IndexedDocument document = ragService.getDocument(documentId);
+        boolean pdf = document.fileName().toLowerCase(Locale.ROOT).endsWith(".pdf");
+        ContentDisposition disposition = (pdf ? ContentDisposition.inline() : ContentDisposition.attachment())
+                .filename(document.fileName(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .contentType(pdf ? MediaType.APPLICATION_PDF : MediaType.APPLICATION_OCTET_STREAM)
+                .contentLength(document.originalBytes().length)
+                .body(document.originalBytes());
     }
 
     @DeleteMapping("/{documentId}")

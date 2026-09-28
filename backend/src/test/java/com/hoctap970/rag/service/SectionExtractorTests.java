@@ -12,6 +12,15 @@ class SectionExtractorTests {
     private final SectionExtractor extractor = new SectionExtractor();
 
     @Test
+    void preservesConsecutiveHeadingsNumberedFactsAndTableLineBreaks() {
+        var sections = extractor.extract("[[TRANG 3]]\nQUY ĐỊNH\nHỌC BỔNG\n1. GPA tối thiểu 3.7\n"
+                + "Tên | Năm | Giá trị\nA | 2025 | 42\n[[TRANG 4]]\nNgoại lệ: hoàn cảnh khó khăn.");
+        String content = sections.stream().map(SectionContent::text).collect(java.util.stream.Collectors.joining("\n"));
+        assertThat(content).contains("QUY ĐỊNH", "HỌC BỔNG", "GPA tối thiểu 3.7", "Tên | Năm | Giá trị\nA | 2025 | 42");
+        assertThat(sections.getLast().pageNumber()).isEqualTo(4);
+    }
+
+    @Test
     void extractsVietnameseHeadingsAndTheirContent() {
         String text = """
                 CHƯƠNG 1 TỔNG QUAN

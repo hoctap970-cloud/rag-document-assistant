@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+import java.text.Normalizer;
 
 import com.hoctap970.rag.domain.SectionContent;
 import org.springframework.stereotype.Component;
@@ -12,6 +14,7 @@ import org.springframework.stereotype.Component;
 public class SectionExtractor {
 
     private static final String DEFAULT_SECTION = "Nội dung chính";
+    private static final Pattern PAGE_MARKER = Pattern.compile("^\\[\\[TRANG (\\d+)]]$");
     private static final Pattern KEYWORD_HEADING = Pattern.compile(
             "^(chương|phần|mục|điều|bài|section|chapter)\\s+[\\p{L}0-9IVXLCDM]+.*$",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
@@ -30,27 +33,37 @@ public class SectionExtractor {
         List<SectionContent> sections = new ArrayList<>();
         String currentTitle = DEFAULT_SECTION;
         StringBuilder currentText = new StringBuilder();
+        int pageNumber = 0;
 
         for (String rawLine : normalized.split("\\n")) {
             String line = rawLine.trim();
+            Matcher page = PAGE_MARKER.matcher(line);
+            if (page.matches()) {
+                addSection(sections, currentTitle, currentText, pageNumber);
+                currentText.setLength(0);
+                pageNumber = Integer.parseInt(page.group(1));
+                continue;
+            }
             if (line.isBlank()) {
                 appendParagraphBreak(currentText);
                 continue;
             }
 
             if (isHeading(line)) {
-                addSection(sections, currentTitle, currentText);
+                addSection(sections, currentTitle, currentText, pageNumber);
                 currentTitle = abbreviate(line, 160);
                 currentText.setLength(0);
+                // Headings can contain the answer (names, numbered lists, amounts).
+                currentText.append(line).append('\n');
             } else {
                 if (!currentText.isEmpty() && currentText.charAt(currentText.length() - 1) != '\n') {
-                    currentText.append(' ');
+                    currentText.append('\n');
                 }
                 currentText.append(line);
             }
         }
 
-        addSection(sections, currentTitle, currentText);
+        addSection(sections, currentTitle, currentText, pageNumber);
         if (sections.isEmpty()) {
             sections.add(new SectionContent(DEFAULT_SECTION, normalized));
         }
@@ -58,6 +71,7 @@ public class SectionExtractor {
     }
 
     private boolean isHeading(String line) {
+        if (line.contains("\t") || line.contains(" | ")) return false;
         if (line.length() > 160 || line.split("\\s+").length > 18) {
             return false;
         }
@@ -81,10 +95,10 @@ public class SectionExtractor {
         return line.endsWith(".") || line.endsWith(",") || line.endsWith(";") || line.endsWith(":");
     }
 
-    private void addSection(List<SectionContent> sections, String title, StringBuilder text) {
+    private void addSection(List<SectionContent> sections, String title, StringBuilder text, int pageNumber) {
         String content = text.toString().trim();
         if (!content.isBlank()) {
-            sections.add(new SectionContent(title, content));
+            sections.add(new SectionContent(title, content, pageNumber));
         }
     }
 
@@ -98,10 +112,10 @@ public class SectionExtractor {
         if (text == null) {
             return "";
         }
-        return text.replace('\u00A0', ' ')
+        return Normalizer.normalize(text, Normalizer.Form.NFC).replace('\u00A0', ' ')
                 .replace("\r\n", "\n")
                 .replace('\r', '\n')
-                .replaceAll("[\\t ]+", " ")
+                .replaceAll(" +", " ")
                 .replaceAll("\\n{3,}", "\n\n")
                 .trim();
     }

@@ -2,15 +2,18 @@ const state = {
     health: null,
     documents: [],
     selectedFile: null,
+    refreshing: false,
     uploading: false,
     asking: false
 };
 
 const elements = {
     serviceStatus: document.querySelector("#serviceStatus"),
+    retryConnection: document.querySelector("#retryConnection"),
     configBanner: document.querySelector("#configBanner"),
     uploadForm: document.querySelector("#uploadForm"),
     fileInput: document.querySelector("#fileInput"),
+    deepRead: document.querySelector("#deepRead"),
     dropZone: document.querySelector("#dropZone"),
     dropTitle: document.querySelector("#dropTitle"),
     dropHint: document.querySelector("#dropHint"),
@@ -33,6 +36,14 @@ const elements = {
     viewerOriginal: document.querySelector("#viewerOriginal"),
     viewerContent: document.querySelector("#viewerContent"),
     closeViewer: document.querySelector("#closeViewer"),
+    personalizeButton: document.querySelector("#personalizeButton"),
+    identityDialog: document.querySelector("#identityDialog"),
+    identityForm: document.querySelector("#identityForm"),
+    closeIdentity: document.querySelector("#closeIdentity"),
+    ownerInput: document.querySelector("#ownerInput"),
+    signatureInput: document.querySelector("#signatureInput"),
+    ownerLabel: document.querySelector("#ownerLabel"),
+    signatureLabel: document.querySelector("#signatureLabel"),
     toast: document.querySelector("#toast")
 };
 
@@ -48,6 +59,9 @@ async function api(path, options = {}) {
 }
 
 async function refresh() {
+    if (state.refreshing) return;
+    state.refreshing = true;
+    renderStatus();
     try {
         const [health, documents] = await Promise.all([
             api("/api/health"),
@@ -55,25 +69,26 @@ async function refresh() {
         ]);
         state.health = health;
         state.documents = documents;
-        renderStatus();
         renderDocuments();
     } catch (error) {
         state.health = null;
-        state.documents = [];
-        renderDocuments();
-        elements.configBanner.classList.add("hidden");
-        elements.serviceStatus.className = "status-pill error";
-        elements.serviceStatus.lastElementChild.textContent = "Mất kết nối";
         showToast(error.message, true);
+    } finally {
+        state.refreshing = false;
+        renderStatus();
     }
 }
 
 function renderStatus() {
-    elements.serviceStatus.className = "status-pill online";
-    elements.serviceStatus.lastElementChild.textContent = state.health.geminiConfigured
-        ? "Backend và Gemini sẵn sàng"
-        : "Backend đang chạy";
-    elements.configBanner.classList.toggle("hidden", state.health.geminiConfigured);
+    const connected = Boolean(state.health);
+    elements.serviceStatus.className = `status-pill${state.refreshing ? "" : connected ? " online" : " error"}`;
+    elements.serviceStatus.lastElementChild.textContent = state.refreshing
+        ? "Đang kết nối"
+        : !connected ? "Mất kết nối"
+            : state.health.geminiConfigured ? "Đã kết nối" : "Chưa thiết lập AI";
+    elements.configBanner.classList.toggle("hidden", !connected || state.health.geminiConfigured);
+    elements.retryConnection.classList.toggle("hidden", connected);
+    elements.retryConnection.disabled = state.refreshing;
     updateControls();
 }
 
@@ -87,7 +102,11 @@ function renderDocuments() {
     if (state.documents.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty-list";
-        empty.textContent = "Chưa có tài liệu nào.";
+        empty.append(
+            documentNode("span", "empty-list-icon", "▤"),
+            documentNode("strong", "", "Chưa có tài liệu nào"),
+            documentNode("span", "", "Tài liệu mới sẽ hiện ở đây.")
+        );
         elements.documentList.append(empty);
     } else {
         state.documents.forEach(document => elements.documentList.append(createDocumentItem(document)));
@@ -107,6 +126,9 @@ function createDocumentItem(document) {
         `${document.chunkCount} đoạn · ${formatBytes(document.size)} · ${formatTime(document.uploadedAt)}`
     );
     info.append(name, meta);
+    if (document.warnings?.length) {
+        info.append(createWarnings(document.warnings, "Lưu ý khi đọc tài liệu"));
+    }
 
     const remove = documentNode("button", "delete-button", "×");
     remove.type = "button";
@@ -119,6 +141,7 @@ function createDocumentItem(document) {
 
 async function uploadSelectedFile(event) {
     event.preventDefault();
+    if (state.uploading || state.asking || state.refreshing || !state.health?.geminiConfigured) return;
     if (!state.selectedFile) {
         showToast("Hãy chọn một tệp PDF, DOC hoặc DOCX.", true);
         return;
@@ -126,6 +149,8 @@ async function uploadSelectedFile(event) {
 
     const formData = new FormData();
     formData.append("file", state.selectedFile);
+    formData.append("readMode", extensionOf(state.selectedFile.name || "") === "PDF"
+        && elements.deepRead.checked ? "DEEP" : "AUTO");
     state.uploading = true;
     updateControls();
 
@@ -134,7 +159,8 @@ async function uploadSelectedFile(event) {
             method: "POST",
             body: formData
         });
-        showToast(`Đã tạo ${result.chunkCount} vector từ ${result.fileName}.`);
+        showToast(`Đã đọc ${result.fileName}. ${result.warnings?.length
+            ? "Có lưu ý về nội dung trích xuất trong thư viện." : "Bạn có thể bắt đầu đặt câu hỏi."}`);
         resetFileSelection();
         await refresh();
     } catch (error) {
@@ -146,7 +172,7 @@ async function uploadSelectedFile(event) {
 }
 
 function chooseFile(file) {
-    if (!file) {
+    if (!file || state.uploading) {
         return;
     }
     const extension = extensionOf(file.name);
@@ -164,15 +190,16 @@ function chooseFile(file) {
     }
 
     state.selectedFile = file;
+    elements.deepRead.checked = false;
     elements.dropTitle.textContent = file.name;
-    elements.dropHint.textContent = `${formatBytes(file.size)} · Sẵn sàng tạo vector`;
+    elements.dropHint.textContent = `${formatBytes(file.size)} · Sẵn sàng để đọc`;
     updateControls();
 }
 
 function resetFileSelection() {
     state.selectedFile = null;
     elements.fileInput.value = "";
-    elements.dropTitle.textContent = "Chọn hoặc thả tệp vào đây";
+    elements.dropTitle.textContent = "Thả tệp vào đây";
     elements.dropHint.textContent = "PDF, DOC, DOCX · tối đa 10 MB";
 }
 
@@ -205,7 +232,8 @@ async function clearDocuments() {
 async function askQuestion(event) {
     event.preventDefault();
     const question = elements.questionInput.value.trim();
-    if (!question || state.asking) {
+    if (!question || state.asking || state.uploading || state.refreshing
+            || !state.health?.geminiConfigured || state.documents.length === 0) {
         return;
     }
 
@@ -224,10 +252,12 @@ async function askQuestion(event) {
             body: JSON.stringify({ question })
         });
         loadingMessage.remove();
-        appendMessage("assistant", response.answer, response.sources);
+        appendMessage("assistant", response.answer, response.sources, response.warnings);
     } catch (error) {
         loadingMessage.remove();
         appendMessage("assistant", `Không thể xử lý câu hỏi: ${error.message}`);
+        elements.questionInput.value = question;
+        resizeTextarea();
         showToast(error.message, true);
     } finally {
         state.asking = false;
@@ -236,11 +266,13 @@ async function askQuestion(event) {
     }
 }
 
-function appendMessage(role, text, sources = []) {
+function appendMessage(role, text, sources = [], warnings = []) {
     const message = documentNode("article", `message ${role}`);
-    const avatar = documentNode("div", "message-avatar", role === "user" ? "Bạn" : "AI");
+    const avatar = documentNode("div", "message-avatar", role === "user" ? "Bạn" : "✦");
+    avatar.setAttribute("aria-label", role === "user" ? "Bạn" : "Trợ lý AI");
     const body = documentNode("div", "message-body");
     body.append(documentNode("div", "bubble", text));
+    if (warnings.length) body.append(createWarnings(warnings, "Lưu ý về độ đầy đủ của câu trả lời"));
 
     if (sources.length > 0) {
         body.append(documentNode("div", "sources-title", `Nguồn đã truy xuất (${sources.length})`));
@@ -255,7 +287,8 @@ function appendMessage(role, text, sources = []) {
 
 function appendLoadingMessage() {
     const message = documentNode("article", "message assistant");
-    const avatar = documentNode("div", "message-avatar", "AI");
+    const avatar = documentNode("div", "message-avatar", "✦");
+    avatar.setAttribute("aria-label", "Trợ lý AI đang trả lời");
     const body = documentNode("div", "message-body");
     const bubble = documentNode("div", "bubble");
     const typing = documentNode("div", "typing");
@@ -277,10 +310,11 @@ function createSourceCard(source, index) {
     const title = documentNode(
         "strong",
         "",
-        `[Nguồn ${index + 1}] ${source.fileName} — ${source.section}`
+        `[Nguồn ${index + 1}] ${source.fileName}${source.pageNumber > 0 ? ` · trang ${source.pageNumber}` : ""} — ${source.section}`
     );
     title.title = `${source.fileName} — ${source.section}`;
     const score = documentNode("span", "source-score", `${Math.round(source.score * 100)}%`);
+    score.title = "Độ tương đồng với câu hỏi, không phải độ chính xác của câu trả lời";
     header.append(title, score);
     card.append(
         header,
@@ -296,7 +330,7 @@ async function openSource(source) {
     const request = ++viewerRequest;
     elements.viewerTitle.textContent = source.fileName;
     elements.viewerSubtitle.textContent = "Đang mở bản chữ của tài liệu…";
-    elements.viewerLocation.textContent = `Đoạn ${source.chunkIndex} · ${source.section}`;
+    elements.viewerLocation.textContent = `${source.pageNumber > 0 ? `Trang ${source.pageNumber} · ` : ""}Đoạn ${source.chunkIndex} · ${source.section}`;
     elements.viewerOriginal.href = `/api/documents/${encodeURIComponent(source.documentId)}/original`;
     elements.viewerContent.replaceChildren();
     elements.sourceViewer.showModal();
@@ -325,7 +359,8 @@ function renderViewerChunks(chunks, targetIndex) {
         }
         const selected = chunk.chunkIndex === targetIndex;
         const block = documentNode("article", `viewer-chunk${selected ? " selected" : ""}`);
-        block.append(documentNode("span", "viewer-chunk-number", `Đoạn ${chunk.chunkIndex}`));
+        block.append(documentNode("span", "viewer-chunk-number",
+            `${chunk.pageNumber > 0 ? `Trang ${chunk.pageNumber} · ` : ""}Đoạn ${chunk.chunkIndex}`));
         const text = documentNode(selected ? "mark" : "p", "viewer-chunk-text", chunk.text);
         block.append(text);
         fragment.append(block);
@@ -334,7 +369,10 @@ function renderViewerChunks(chunks, targetIndex) {
 
     elements.viewerContent.replaceChildren(fragment);
     if (selectedChunk) {
-        requestAnimationFrame(() => selectedChunk.scrollIntoView({ block: "center", behavior: "auto" }));
+        requestAnimationFrame(() => selectedChunk.scrollIntoView({
+            block: selectedChunk.offsetHeight > elements.viewerContent.clientHeight ? "start" : "center",
+            behavior: "auto"
+        }));
     } else {
         elements.viewerLocation.textContent = "Không tìm thấy đoạn nguồn trong tài liệu này.";
     }
@@ -343,23 +381,29 @@ function renderViewerChunks(chunks, targetIndex) {
 function updateControls() {
     const configured = Boolean(state.health?.geminiConfigured);
     const hasDocuments = state.documents.length > 0;
-    elements.uploadButton.disabled = state.uploading || !state.selectedFile || !configured;
-    elements.uploadLabel.textContent = state.uploading ? "Đang xử lý tài liệu…" : "Đọc và tạo vector";
+    const busy = state.uploading || state.asking || state.refreshing;
+    elements.uploadButton.disabled = busy || !state.selectedFile || !configured;
+    elements.uploadLabel.textContent = state.uploading ? "Đang đọc & lập chỉ mục…" : "Phân tích tài liệu";
     elements.uploadSpinner.classList.toggle("hidden", !state.uploading);
     elements.fileInput.disabled = state.uploading;
-    elements.clearButton.disabled = state.uploading || state.asking || !hasDocuments || !state.health;
-    elements.questionInput.disabled = state.uploading || state.asking || !hasDocuments || !configured;
-    elements.askButton.disabled = state.uploading || state.asking || !hasDocuments || !configured;
-    elements.questionInput.placeholder = !configured
-        ? "Cần cấu hình GEMINI_API_KEY…"
-        : hasDocuments
-            ? "Hỏi một điều có trong tài liệu…"
-            : "Tải tài liệu lên rồi nhập câu hỏi…";
+    const pdfSelected = extensionOf(state.selectedFile?.name || "") === "PDF";
+    elements.deepRead.disabled = busy || !pdfSelected;
+    if (!pdfSelected) elements.deepRead.checked = false;
+    elements.dropZone.setAttribute("aria-disabled", String(state.uploading));
+    elements.dropZone.tabIndex = state.uploading ? -1 : 0;
+    elements.clearButton.disabled = busy || !hasDocuments || !state.health;
+    elements.questionInput.disabled = busy || !hasDocuments || !configured;
+    elements.askButton.disabled = elements.questionInput.disabled || !elements.questionInput.value.trim();
+    elements.questionInput.placeholder = state.refreshing ? "Đang kết nối tới backend…"
+        : !state.health ? "Mất kết nối — hãy bấm Kết nối lại…"
+            : !configured ? "Cần cấu hình GEMINI_API_KEY…"
+                : hasDocuments ? "Hỏi một điều có trong tài liệu…"
+                    : "Tải tài liệu lên rồi nhập câu hỏi…";
     document.querySelectorAll(".prompt-chip").forEach(button => {
-        button.disabled = !hasDocuments || !configured || state.asking || state.uploading;
+        button.disabled = !hasDocuments || !configured || busy;
     });
     document.querySelectorAll(".delete-button").forEach(button => {
-        button.disabled = state.uploading || state.asking || !state.health;
+        button.disabled = busy || !state.health;
     });
 }
 
@@ -414,10 +458,64 @@ function formatTime(isoDate) {
     }).format(new Date(isoDate));
 }
 
+function createWarnings(warnings, title) {
+    const details = documentNode("details", "reading-warnings");
+    details.append(documentNode("summary", "", title));
+    warnings.forEach(warning => details.append(documentNode("p", "", warning)));
+    return details;
+}
+
+const identityKey = "nova.identity";
+function readIdentity() {
+    try {
+        const saved = JSON.parse(window.localStorage.getItem(identityKey)
+            || window.localStorage.getItem("le-studio.identity")) || {};
+        return {
+            owner: typeof saved.owner === "string" ? saved.owner.slice(0, 36) : "",
+            signature: typeof saved.signature === "string" ? saved.signature.slice(0, 80) : ""
+        };
+    } catch {
+        return { owner: "", signature: "" };
+    }
+}
+
+let identity = readIdentity();
+function renderIdentity() {
+    elements.ownerLabel.textContent = identity.owner || "Không gian của bạn";
+    elements.ownerLabel.title = identity.owner || "Đặt tên cho không gian của bạn";
+    elements.signatureLabel.textContent = identity.signature || "Một góc riêng. Một cách nghĩ riêng.";
+    elements.signatureLabel.title = elements.signatureLabel.textContent;
+}
+
+elements.personalizeButton.addEventListener("click", () => {
+    elements.ownerInput.value = identity.owner;
+    elements.signatureInput.value = identity.signature;
+    elements.identityDialog.showModal();
+    elements.ownerInput.focus();
+});
+elements.closeIdentity.addEventListener("click", () => elements.identityDialog.close());
+elements.identityForm.addEventListener("submit", event => {
+    event.preventDefault();
+    identity = {
+        owner: elements.ownerInput.value.trim().slice(0, 36),
+        signature: elements.signatureInput.value.trim().slice(0, 80)
+    };
+    let saved = true;
+    try {
+        window.localStorage.setItem(identityKey, JSON.stringify(identity));
+    } catch {
+        saved = false;
+    }
+    renderIdentity();
+    elements.identityDialog.close();
+    showToast(saved ? "Đã lưu dấu riêng của bạn." : "Đã áp dụng cho phiên này. Trình duyệt đang chặn lưu tùy chỉnh.");
+});
+
 elements.uploadForm.addEventListener("submit", uploadSelectedFile);
+elements.retryConnection.addEventListener("click", refresh);
 elements.fileInput.addEventListener("change", event => chooseFile(event.target.files[0]));
 elements.dropZone.addEventListener("keydown", event => {
-    if (event.key === "Enter" || event.key === " ") {
+    if (!state.uploading && (event.key === "Enter" || event.key === " ")) {
         event.preventDefault();
         elements.fileInput.click();
     }
@@ -426,9 +524,12 @@ elements.clearButton.addEventListener("click", clearDocuments);
 elements.closeViewer.addEventListener("click", () => elements.sourceViewer.close());
 elements.sourceViewer.addEventListener("close", () => { viewerRequest++; });
 elements.chatForm.addEventListener("submit", askQuestion);
-elements.questionInput.addEventListener("input", resizeTextarea);
+elements.questionInput.addEventListener("input", () => {
+    resizeTextarea();
+    updateControls();
+});
 elements.questionInput.addEventListener("keydown", event => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         elements.chatForm.requestSubmit();
     }
@@ -437,7 +538,7 @@ elements.questionInput.addEventListener("keydown", event => {
 ["dragenter", "dragover"].forEach(eventName => {
     elements.dropZone.addEventListener(eventName, event => {
         event.preventDefault();
-        elements.dropZone.classList.add("dragover");
+        if (!state.uploading) elements.dropZone.classList.add("dragover");
     });
 });
 
@@ -451,11 +552,24 @@ elements.questionInput.addEventListener("keydown", event => {
 elements.dropZone.addEventListener("drop", event => chooseFile(event.dataTransfer.files[0]));
 document.querySelectorAll(".prompt-chip").forEach(button => {
     button.addEventListener("click", () => {
-        elements.questionInput.value = button.textContent;
+        elements.questionInput.value = button.dataset?.question || button.textContent;
         resizeTextarea();
+        updateControls();
         elements.questionInput.focus();
     });
 });
 
+const hero = document.querySelector(".page-intro");
+hero?.addEventListener("pointermove", event => {
+    const bounds = hero.getBoundingClientRect();
+    hero.style.setProperty("--light-x", `${event.clientX - bounds.left}px`);
+    hero.style.setProperty("--light-y", `${event.clientY - bounds.top}px`);
+});
+hero?.addEventListener("pointerleave", () => {
+    hero.style.removeProperty("--light-x");
+    hero.style.removeProperty("--light-y");
+});
+
+renderIdentity();
 updateControls();
 refresh();

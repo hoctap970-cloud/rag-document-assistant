@@ -8,6 +8,7 @@ public record SourceReference(
         String section,
         int chunkIndex,
         double score,
-        String excerpt
+        String excerpt,
+        int pageNumber
 ) {
 }

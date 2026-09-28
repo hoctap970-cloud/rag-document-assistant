@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.UUID;
 
 import com.hoctap970.rag.domain.IndexedDocument;
+import com.hoctap970.rag.domain.ReadingMode;
 import com.hoctap970.rag.dto.DocumentContent;
 import com.hoctap970.rag.dto.DocumentSummary;
 import com.hoctap970.rag.dto.MessageResponse;
@@ -36,8 +37,9 @@ public class DocumentController {
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public UploadResponse upload(@RequestParam("file") MultipartFile file) {
-        return ragService.upload(file);
+    public UploadResponse upload(@RequestParam("file") MultipartFile file,
+                                 @RequestParam(value = "readMode", defaultValue = "AUTO") String readMode) {
+        return ragService.upload(file, ReadingMode.parse(readMode));
     }
 
     @GetMapping

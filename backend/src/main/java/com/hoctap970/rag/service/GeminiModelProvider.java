@@ -38,9 +38,9 @@ public class GeminiModelProvider {
                     chatModel = GoogleGenAiChatModel.builder()
                             .apiKey(properties.apiKey())
                             .modelName(properties.chatModel())
-                            .temperature(0.1)
-                            .maxOutputTokens(1024)
-                            .timeout(Duration.ofSeconds(60))
+                            .temperature(0.0)
+                            .maxOutputTokens(properties.maxOutputTokens())
+                            .timeout(Duration.ofSeconds(properties.timeoutSeconds()))
                             .maxRetries(2)
                             .build();
                 }

@@ -2,6 +2,7 @@ package com.hoctap970.rag.dto;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
 
 public record UploadResponse(
         UUID documentId,
@@ -12,6 +13,7 @@ public record UploadResponse(
         int sectionCount,
         int chunkCount,
         Instant uploadedAt,
-        String message
+        String message,
+        List<String> warnings
 ) {
 }

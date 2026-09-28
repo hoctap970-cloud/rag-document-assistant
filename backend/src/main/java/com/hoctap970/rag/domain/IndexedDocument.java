@@ -16,6 +16,13 @@ public record IndexedDocument(
         Instant uploadedAt,
         List<String> embeddingIds,
         byte[] originalBytes,
-        List<IndexedChunk> chunks
+        List<IndexedChunk> chunks,
+        List<String> warnings
 ) {
+    public IndexedDocument(UUID id, String fileName, String contentType, long size,
+            int characterCount, int sectionCount, int chunkCount, Instant uploadedAt,
+            List<String> embeddingIds, byte[] originalBytes, List<IndexedChunk> chunks) {
+        this(id, fileName, contentType, size, characterCount, sectionCount, chunkCount,
+                uploadedAt, embeddingIds, originalBytes, chunks, List.of());
+    }
 }

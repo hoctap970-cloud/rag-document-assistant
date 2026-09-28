@@ -2,6 +2,7 @@ package com.hoctap970.rag.dto;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
 
 public record DocumentSummary(
         UUID id,
@@ -11,6 +12,7 @@ public record DocumentSummary(
         int characterCount,
         int sectionCount,
         int chunkCount,
-        Instant uploadedAt
+        Instant uploadedAt,
+        List<String> warnings
 ) {
 }

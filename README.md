@@ -1,20 +1,23 @@
 # RAG Document Assistant
 
-Ứng dụng web hỏi đáp nội dung trong tài liệu PDF, DOC và DOCX bằng **Retrieval-Augmented Generation (RAG)**. Hệ thống đọc tài liệu, chia nội dung thành các đoạn nhỏ, tạo embedding, lưu vector trong RAM, truy xuất 5 đoạn gần nhất và dùng Gemini để tạo câu trả lời có dẫn nguồn.
+Ứng dụng web hỏi đáp nội dung trong tài liệu PDF, DOC và DOCX bằng **Retrieval-Augmented Generation (RAG)**. Hệ thống giữ cấu trúc nội dung, kết hợp tìm kiếm ngữ nghĩa với từ khóa BM25, xếp hạng lại bằng chứng và dùng Gemini để tạo câu trả lời có dẫn nguồn.
 
 > Đồ án môn Java Spring 2 — Java 21, Spring Boot 4, LangChain4j và Gemini API.
 
 ## Chức năng
 
 - Tải lên tài liệu PDF, DOC hoặc DOCX, tối đa 10 MB.
-- Trích xuất chữ bằng Apache Tika.
-- Nhận diện tiêu đề/mục và chia tài liệu thành các đoạn có phần chồng lấn.
+- Đọc PDF theo trang bằng PDFBox, giữ hàng/cột bảng DOCX bằng Apache POI, đọc DOC bằng Apache Tika.
+- Đọc trang PDF ít chữ/có hình lớn và ảnh PNG/JPEG trong DOCX bằng Gemini Vision; hiển thị lưu ý khi nội dung có thể thiếu.
+- Tùy chọn **Đọc kỹ từng trang PDF** cho bảng/sơ đồ khó: gửi mọi trang qua Vision, kiểm tra giới hạn trước khi gọi API.
+- Giữ tiêu đề/mục, số trang PDF và chia tài liệu thành các đoạn có phần chồng lấn.
 - Tạo embedding bằng `gemini-embedding-001` và lưu bằng `InMemoryEmbeddingStore`.
 - Đặt câu hỏi bằng tiếng Việt qua giao diện web.
-- Truy xuất tối đa 5 đoạn liên quan bằng độ tương đồng vector.
+- Tìm bằng vector + BM25, gộp thứ hạng RRF, rerank bằng Gemini và lấy thêm đoạn liền kề để giữ điều kiện/ngoại lệ. Tài liệu ngắn được đưa trọn vào ngữ cảnh.
+- Gộp đoạn lặp trước khi giới hạn ứng viên; nhận diện đầy đủ tên file để tránh chọn nhầm tệp có tên gần giống.
 - Sinh câu trả lời bằng `gemini-2.5-flash`, chỉ dựa trên ngữ cảnh truy xuất.
-- Hiển thị nguồn gồm tên tệp, tên mục, số đoạn, độ tương đồng và trích đoạn.
-- Bấm vào nguồn để mở bản chữ của tài liệu, tự cuộn đến đoạn liên quan và tô vàng; có thể mở/tải tệp gốc để đối chiếu.
+- Hiển thị nguồn gồm tên tệp, tên mục, số trang PDF, số đoạn, độ tương đồng và trích đoạn. Điểm tương đồng không phải xác suất đáp án đúng.
+- Bấm vào nguồn để mở bản chữ của tài liệu, tự cuộn đến đoạn liên quan và đánh dấu nổi bật; có thể mở/tải tệp gốc để đối chiếu.
 - Xem danh sách tài liệu, số đoạn và xóa dữ liệu khỏi RAM.
 - Trả lỗi API thống nhất, không làm lộ API key hoặc chi tiết nội bộ.
 - Giao diện responsive, chạy chung với backend nên chỉ cần khởi động một ứng dụng.
@@ -27,7 +30,7 @@ flowchart LR
     FE --> API[Spring REST Controller]
 
     subgraph Indexing[Luồng nạp tài liệu]
-        API --> TIKA[Apache Tika parser]
+        API --> TIKA[PDFBox / POI / Tika + Vision]
         TIKA --> SEC[Tách mục]
         SEC --> CHUNK[Chia đoạn + overlap]
         CHUNK --> EMB[Gemini Embedding]
@@ -37,7 +40,7 @@ flowchart LR
     subgraph Query[Luồng hỏi đáp]
         API --> QEMB[Embedding câu hỏi]
         QEMB --> RAM
-        RAM --> TOP[Top 5 đoạn liên quan]
+        RAM --> TOP[Vector + BM25 + rerank + đoạn kề]
         TOP --> LLM[Gemini 2.5 Flash]
         LLM --> ANSWER[Câu trả lời + nguồn]
     end
@@ -56,7 +59,7 @@ flowchart LR
 | Ngôn ngữ | Java 21 |
 | Backend | Spring Boot 4.1.1, Spring Web MVC, Bean Validation |
 | RAG | LangChain4j 1.20.0 |
-| Đọc tài liệu | Apache Tika 3 qua LangChain4j |
+| Đọc tài liệu | Apache PDFBox, Apache POI, Apache Tika 3, Gemini Vision |
 | Chat model | Gemini 2.5 Flash |
 | Embedding model | Gemini Embedding 001, 768 chiều |
 | Vector store | `InMemoryEmbeddingStore<TextSegment>` |
@@ -71,10 +74,12 @@ Frontend không có thư mục dự án riêng: Spring Boot phục vụ trực t
 | File | Bạn sửa gì ở đây? |
 |---|---|
 | `static/index.html` | Chữ, các khu vực trên trang, biểu mẫu và cửa sổ xem nguồn |
-| `static/css/app.css` | Màu sắc, kích thước, bố cục, hiệu ứng và giao diện điện thoại |
+| `static/css/nova.css` | Giao diện NOVA, màu sắc, bố cục và hiển thị trên điện thoại |
 | `static/js/app.js` | Các thao tác upload, hỏi đáp, trạng thái, danh sách tài liệu và mở nguồn |
 
-Thiết kế hiện tại có phần giới thiệu ba bước, thư viện tài liệu, khung trò chuyện và cửa sổ kiểm chứng nguồn. Toàn bộ dùng HTML/CSS/JavaScript thuần, không cần chạy thêm npm hay một máy chủ frontend. Sau khi sửa FE, hãy chạy lại `BackendApplication` trong IntelliJ rồi tải lại `http://localhost:8080` để xem bản mới.
+Giao diện **NOVA** dùng thanh tài liệu nền tối, khu hỏi đáp sáng và điểm nhấn xanh ngọc. Bấm tên không gian ở góc trên phải để đặt biệt danh và câu ký tên; hai thông tin này chỉ lưu trong `localStorage` của trình duyệt. Phông chữ được lưu cùng ứng dụng, kèm giấy phép SIL Open Font License trong `static/fonts/OFL.txt`.
+
+Toàn bộ dùng HTML/CSS/JavaScript thuần, không cần chạy thêm npm hay máy chủ frontend. Sau khi sửa FE, hãy chạy lại `BackendApplication` trong IntelliJ rồi tải lại `http://localhost:8080` để xem bản mới.
 
 ## Yêu cầu trước khi chạy
 
@@ -147,10 +152,10 @@ Biến môi trường trên chỉ có hiệu lực trong cửa sổ PowerShell h
 ## Cách sử dụng
 
 1. Chọn hoặc kéo thả một tệp PDF/DOC/DOCX.
-2. Nhấn **Đọc và tạo vector**.
+2. Với PDF khó, có thể chọn **Đọc kỹ từng trang PDF** trước khi nhấn **Phân tích tài liệu**. Chế độ này đọc mọi trang bằng AI, tốn thêm thời gian/quota và mặc định giới hạn 40 trang. Không chọn thì dùng chế độ tự động.
 3. Chờ thông báo số vector đã tạo và kiểm tra tài liệu xuất hiện ở cột trái.
 4. Nhập câu hỏi có đáp án nằm trong tài liệu.
-5. Đọc câu trả lời và bấm một nguồn bên dưới. Cửa sổ sẽ mở bản chữ trích xuất, cuộn đến đoạn được truy xuất và tô vàng đoạn đó. Chọn **Mở tệp gốc** nếu cần xem bố cục PDF/Word ban đầu.
+5. Đọc câu trả lời và bấm một nguồn bên dưới. Cửa sổ sẽ mở bản chữ trích xuất, cuộn đến đoạn được truy xuất và đánh dấu nổi bật đoạn đó. Chọn **Mở tệp gốc** nếu cần xem bố cục PDF/Word ban đầu.
 6. Dùng nút `×` để xóa một tài liệu hoặc **Xóa hết** để làm sạch RAM.
 
 ## API
@@ -158,7 +163,7 @@ Biến môi trường trên chỉ có hiệu lực trong cửa sổ PowerShell h
 | Method | Endpoint | Chức năng |
 |---|---|---|
 | `GET` | `/api/health` | Trạng thái backend, Gemini, số tài liệu và số đoạn |
-| `POST` | `/api/documents/upload` | Nhận multipart field `file`, đọc và tạo vector |
+| `POST` | `/api/documents/upload` | Nhận multipart `file`, tùy chọn `readMode=AUTO` hoặc `DEEP` (PDF), đọc và tạo vector |
 | `GET` | `/api/documents` | Danh sách tài liệu trong RAM |
 | `GET` | `/api/documents/{id}/content` | Bản chữ và các đoạn của tài liệu để đối chiếu nguồn |
 | `GET` | `/api/documents/{id}/original` | Mở PDF gốc hoặc tải Word gốc từ RAM |
@@ -193,18 +198,30 @@ Các giá trị nằm trong `backend/src/main/resources/application.properties`:
 
 | Thuộc tính | Mặc định | Ý nghĩa |
 |---|---:|---|
-| `app.rag.chunk-size` | `900` | Kích thước tối đa của một đoạn |
-| `app.rag.chunk-overlap` | `120` | Phần chồng lấn để không mất ngữ cảnh ở ranh giới |
+| `app.rag.chunk-size` | `1500` | Số ký tự mục tiêu trước khi thêm tiêu đề ngữ cảnh |
+| `app.rag.chunk-overlap` | `220` | Phần chồng lấn ở ranh giới |
 | `app.rag.max-chunks-per-document` | `800` | Chặn tài liệu quá lớn gây tốn quota |
-| `app.rag.max-results` | `5` | Số đoạn truy xuất cho mỗi câu hỏi |
-| `app.rag.min-score` | `0.55` | Ngưỡng tương đồng tối thiểu |
+| `app.rag.max-results` | `14` | Số đoạn chính; có thể thêm đoạn kề hoặc độ phủ cho câu tổng quan |
+| `app.rag.min-score` | `0.35` | Ngưỡng nhánh vector; BM25 vẫn có thể lấy đoạn có score thấp |
+| `app.rag.candidate-count` | `40` | Số ứng viên trước rerank |
+| `app.rag.max-context-characters` | `48000` | Ngân sách ngữ cảnh, tính cả nhãn nguồn ước lượng |
+| `app.rag.full-context-characters` | `24000` | Dưới ngưỡng này dùng toàn bộ các đoạn trong phạm vi truy vấn |
+| `app.rag.neighbor-window` | `1` | Lấy thêm đoạn trước/sau cùng tài liệu |
+| `app.rag.rerank-enabled` | `true` | Thêm lượt Gemini xếp hạng lại khi cần |
+| `app.parsing.vision-enabled` | `true` | Đọc trang/hình bằng AI; có thể đặt `RAG_VISION_ENABLED=false` |
+| `app.parsing.max-pdf-pages` | `250` | Giới hạn trang PDF mỗi tệp |
+| `app.parsing.max-vision-pages` | `40` | Giới hạn trang/hình đọc qua Gemini mỗi tệp |
 | `app.gemini.embedding-dimensions` | `768` | Số chiều vector embedding |
+| `app.gemini.max-output-tokens` | `8192` | Giới hạn đầu ra mỗi lượt chat/vision/rerank |
+
+Đặt `GEMINI_CHAT_MODEL` hoặc `GEMINI_EMBEDDING_MODEL` trong Run Configuration để đổi model. Sau khi đổi embedding model phải nạp lại tài liệu. Xem [hướng dẫn nâng chất lượng và đề thử có nhiễu](docs/RAG_QUALITY_GUIDE.md).
 
 ## Giới hạn hiện tại
 
 - Vector, bản chữ và tệp gốc được lưu trong RAM theo đúng yêu cầu đề bài; dừng ứng dụng sẽ mất dữ liệu. Tệp không được ghi vào repository hoặc ổ đĩa bởi ứng dụng.
-- Cửa sổ xem nguồn hiển thị bản chữ do Apache Tika trích xuất và chia đoạn, nên không giữ nguyên bố cục PDF/Word. Các đoạn kề nhau có thể lặp một ít chữ vì cấu hình overlap; nút **Mở tệp gốc** dùng để kiểm tra định dạng ban đầu.
-- PDF scan hoặc bản in có chữ đã chuyển thành hình/nét vẽ không có lớp chữ để lập chỉ mục. Hãy dùng PDF có thể chọn/copy chữ, tài liệu DOC/DOCX, hoặc OCR trước khi tải lên.
+- Cửa sổ xem nguồn hiển thị bản chữ trích xuất và chia đoạn, nên không giữ nguyên bố cục PDF/Word. Các đoạn kề nhau có thể lặp một ít chữ vì cấu hình overlap; nút **Mở tệp gốc** dùng để kiểm tra định dạng ban đầu.
+- Scan mờ, bảng gộp ô, công thức, biểu đồ hoặc thứ tự đọc nhiều cột vẫn có thể sai. Vision tự động dựa theo lượng chữ/hình lớn; dùng chế độ đọc kỹ PDF để xử lý mọi trang. File DOC chỉ đọc lớp chữ. Xem lưu ý của từng tài liệu.
+- Tài liệu dài chỉ đưa các đoạn được chọn vào lượt trả lời; câu tổng quan có cảnh báo nếu chưa phủ hết tài liệu. Không bảo đảm đúng mọi câu hỏi hay mọi định dạng.
 - Việc nhận diện mục dựa trên tiêu đề được trích xuất từ tài liệu. Với tài liệu định dạng kém, nguồn có thể hiện `Nội dung chính`.
 - Chất lượng trả lời phụ thuộc nội dung tài liệu, cách đặt câu hỏi, Gemini API và hạn mức của tài khoản.
 - Đây là ứng dụng demo cục bộ, chưa có đăng nhập và phân quyền người dùng.
@@ -218,7 +235,17 @@ cd backend
 java -jar target\backend-0.0.1-SNAPSHOT.jar
 ```
 
-Kiểm thử hiện có xác nhận Spring context, quy tắc file upload và logic tách mục. GitHub Actions tự chạy `test` và `package` trên mọi pull request hoặc push vào `main`.
+Kiểm thử gồm Spring context, upload, tách mục, đọc PDF/DOCX thực, truy xuất câu khó giữa dữ liệu nhiễu, đoạn ngoại lệ, ngân sách ngữ cảnh, số trang và mã nguồn. Các kiểm thử thường dùng model giả nên không đo độ chính xác Gemini thực. GitHub Actions tự chạy `test` và `package` trên mọi pull request hoặc push vào `main`.
+
+Sau `test`, bộ đề giả lập 5 câu nằm trong `backend/target/rag-evaluation/`. Bài đánh giá gọi Gemini thật chỉ chạy khi bật `RUN_LIVE_RAG_EVAL=true`; xem [hướng dẫn đánh giá](docs/RAG_QUALITY_GUIDE.md).
+
+Kiểm tra trạng thái và sự kiện frontend bằng Node.js 20 trở lên (không cần cài gói npm), từ thư mục gốc repository:
+
+```powershell
+node --test backend/src/test/js/app.test.cjs
+```
+
+Bộ kiểm tra này bao gồm mất kết nối/kết nối lại, kéo thả khi đang upload, chặn upload trong lúc hỏi đáp, giữ câu hỏi khi API lỗi, trạng thái nút gửi và nhập chữ bằng IME. Bố cục và cửa sổ xem nguồn cần kiểm tra thêm trên trình duyệt ở màn hình laptop và điện thoại.
 
 ## Quy trình Git/GitHub đề xuất
 
@@ -241,6 +268,7 @@ Sau đó tạo Pull Request trên GitHub, kiểm tra tab **Files changed** và *
 
 - [Giải thích chi tiết kiến trúc và từng file](docs/PROJECT_GUIDE.md)
 - [Kịch bản demo và 5 câu hỏi kiểm thử](docs/DEMO_GUIDE.md)
+- [Nâng chất lượng RAG, giới hạn và đề thử có nhiễu](docs/RAG_QUALITY_GUIDE.md)
 - [Quy ước đóng góp và làm việc với Git](CONTRIBUTING.md)
 
 ## Tài liệu kỹ thuật tham khảo

@@ -9,6 +9,9 @@ import java.util.UUID;
 import com.hoctap970.rag.config.RagProperties;
 import com.hoctap970.rag.controller.DocumentController;
 import com.hoctap970.rag.domain.IndexedDocument;
+import com.hoctap970.rag.domain.ParsedDocument;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.model.chat.request.ChatRequest;
 import com.hoctap970.rag.dto.ChatResponse;
 import com.hoctap970.rag.dto.DocumentContent;
 import com.hoctap970.rag.dto.UploadResponse;
@@ -26,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -37,9 +41,10 @@ class SourceViewerTests {
         GeminiModelProvider provider = mock(GeminiModelProvider.class);
         EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
         ChatModel chatModel = mock(ChatModel.class);
+        RagProperties properties = new RagProperties(900, 120, 800, 5, 0.55);
         RagService service = new RagService(
                 new DocumentFileValidator(), parser, new SectionExtractor(), provider,
-                new RagProperties(900, 120, 800, 5, 0.55)
+                properties, new HybridRetriever(properties, provider)
         );
 
         byte[] original = "original file bytes".getBytes(StandardCharsets.UTF_8);
@@ -47,7 +52,8 @@ class SourceViewerTests {
                 "file", "notes.docx", "application/octet-stream", original
         );
         String extractedText = "CHƯƠNG 1 TỔNG QUAN\nRAG truy xuất văn bản rồi tạo câu trả lời có dẫn nguồn.";
-        when(parser.parse(file)).thenReturn(extractedText);
+        when(parser.parseDetailed(file, com.hoctap970.rag.domain.ReadingMode.AUTO))
+                .thenReturn(new ParsedDocument(extractedText, List.of()));
         when(provider.documentEmbeddingModel()).thenReturn(embeddingModel);
         when(provider.queryEmbeddingModel()).thenReturn(embeddingModel);
         when(provider.chatModel()).thenReturn(chatModel);
@@ -56,7 +62,9 @@ class SourceViewerTests {
                         Embedding.from(new float[]{1, 0})))
         );
         when(embeddingModel.embed(anyString())).thenReturn(Response.from(Embedding.from(new float[]{1, 0})));
-        when(chatModel.chat(anyString())).thenReturn("RAG truy xuất văn bản [Nguồn 1].");
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(
+                dev.langchain4j.model.chat.response.ChatResponse.builder()
+                        .aiMessage(AiMessage.from("RAG truy xuất văn bản [Nguồn 1].")).build());
 
         UploadResponse uploaded = service.upload(file);
         ChatResponse answer = service.ask("RAG làm gì?");

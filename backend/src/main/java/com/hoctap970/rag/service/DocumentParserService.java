@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.Base64;
 import com.hoctap970.rag.config.ParsingProperties;
 import com.hoctap970.rag.domain.ParsedDocument;
 import com.hoctap970.rag.domain.ReadingMode;
@@ -20,9 +19,6 @@ import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.text.PDFTextStripper;
-import org.apache.poi.xwpf.usermodel.XWPFDocument;
-import org.apache.poi.xwpf.usermodel.XWPFParagraph;
-import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -58,13 +54,17 @@ public class DocumentParserService {
             if (name.endsWith(".pdf")) {
                 parsed = parsePdf(file.getBytes(), readMode);
             } else if (name.endsWith(".docx")) {
-                parsed = parseDocx(file);
+                parsed = new WordContentExtractor(vision, properties).read(file);
             } else {
+                try (InputStream stream = file.getInputStream(); var ole = new org.apache.poi.poifs.filesystem.POIFSFileSystem(stream)) {
+                    if (!ole.getRoot().hasEntry("WordDocument")) throw new DocumentProcessingException("Nội dung tệp không phải Word DOC. Hãy kiểm tra định dạng thực hoặc xuất DOCX/PDF.", null);
+                }
                 try (InputStream stream = file.getInputStream()) {
                     parsed = new ParsedDocument(new ApacheTikaDocumentParser().parse(stream).text(),
                             List.of("File DOC được đọc theo lớp chữ. Nếu có hình/bảng phức tạp, nên xuất PDF hoặc DOCX để đọc và đối chiếu tốt hơn."));
                 }
             }
+            if (!name.endsWith(".pdf")) parsed = new ParsedDocument(escapePageMarkers(parsed.text()), parsed.warnings());
             if (parsed.text() == null || parsed.text().replaceAll("\\[\\[TRANG \\d+]]", "").isBlank()) {
                 throw new DocumentProcessingException("Không tìm thấy nội dung đọc được trong tài liệu.", null);
             }
@@ -107,16 +107,18 @@ public class DocumentParserService {
                 stripper.setEndPage(index + 1);
                 String nativeText = stripper.getText(pdf).strip();
                 boolean sparse = nativeText.codePoints().filter(Character::isLetterOrDigit).count() < 60;
+                boolean garbled = nativeText.codePoints().anyMatch(c -> c == 0xFFFD || c >= 0xE000 && c <= 0xF8FF);
                 boolean visual = readMode == ReadingMode.DEEP
                         || hasLargeImage(pdf.getPage(index).getResources(), new HashSet<>(), 0);
-                pages.add(new PdfPagePlan(index, nativeText, sparse || visual));
+                boolean empty = nativeText.isBlank() && !pdf.getPage(index).hasContents();
+                pages.add(new PdfPagePlan(index, nativeText, !empty && (sparse || visual || garbled)));
             }
             // Check the whole plan first, so an over-limit upload uses no Gemini quota.
             long requiredPages = pages.stream().filter(PdfPagePlan::needsVision).count();
             if (properties.visionEnabled() && requiredPages > properties.maxVisionPages()) throw visionLimitExceeded();
             for (var page : pages) {
                 int index = page.index();
-                String nativeText = page.text();
+                String nativeText = escapePageMarkers(page.text());
                 String pageText = nativeText;
                 if (page.needsVision() && properties.visionEnabled()) {
                     visionPages++;
@@ -126,10 +128,14 @@ public class DocumentParserService {
                         // Resources may be inherited from the source page tree rather than stored on the page.
                         importedPage.setResources(sourcePage.getResources());
                         singlePage.save(output);
-                        String visualText = vision.readPdfPage(output.toByteArray());
+                        String visualText = escapePageMarkers(vision.readPdfPage(output.toByteArray()));
                         // Keep native text so a visual model cannot silently omit a native fact.
                         pageText = nativeText + (visualText.isBlank() ? "" :
-                                "\n[PHẦN ĐỌC BẰNG AI TỪ TRANG]\n" + visualText);
+                                "\n[Phần đọc bằng AI từ trang]\n" + visualText);
+                    } catch (DocumentProcessingException failure) {
+                        if (readMode == ReadingMode.DEEP || nativeText.codePoints().filter(Character::isLetterOrDigit).count() < 60) throw failure;
+                        warnings.add("Trang " + (index + 1) + ": đã giữ lớp chữ nhưng chưa đọc được hình bằng AI. " + failure.getMessage());
+                        visionPages--;
                     }
                 } else if (page.needsVision()) {
                     warnings.add("Trang " + (index + 1) + " có ít chữ hoặc có hình; đọc bằng AI đang tắt, nội dung có thể thiếu.");
@@ -151,6 +157,10 @@ public class DocumentParserService {
                 + " trang bằng AI. Hãy chia nhỏ hoặc OCR trước; chưa có dữ liệu nào được lưu và chưa gọi Gemini.", null);
     }
 
+    private String escapePageMarkers(String text) {
+        return text == null ? "" : text.replaceAll("(?m)^\\s*\\[\\[TRANG (\\d+)]]\\s*$", "[Nội dung tài liệu] [[TRANG $1]]");
+    }
+
     private boolean hasLargeImage(PDResources resources, Set<PDResources> visited, int depth) throws Exception {
         if (resources == null || depth > 8 || !visited.add(resources)) return false;
         for (var name : resources.getXObjectNames()) {
@@ -165,63 +175,4 @@ public class DocumentParserService {
         return false;
     }
 
-    private ParsedDocument parseDocx(MultipartFile file) throws Exception {
-        StringBuilder text = new StringBuilder();
-        List<String> warnings = new ArrayList<>();
-        try (InputStream stream = file.getInputStream(); XWPFDocument word = new XWPFDocument(stream)) {
-            for (var header : word.getHeaderList()) text.append(header.getText()).append('\n');
-            for (var element : word.getBodyElements()) {
-                if (element instanceof XWPFParagraph paragraph) {
-                    text.append(paragraph.getText()).append('\n');
-                } else if (element instanceof XWPFTable table) {
-                    appendTable(text, table);
-                }
-            }
-            for (var footnote : word.getFootnotes()) {
-                for (var paragraph : footnote.getParagraphs()) text.append(paragraph.getText()).append('\n');
-            }
-            for (var endnote : word.getEndnotes()) {
-                for (var paragraph : endnote.getParagraphs()) text.append(paragraph.getText()).append('\n');
-            }
-            for (var footer : word.getFooterList()) text.append(footer.getText()).append('\n');
-            int imagesRead = 0;
-            Set<String> seen = new HashSet<>();
-            for (var picture : word.getAllPictures()) {
-                String imageName = picture.getFileName().toLowerCase(Locale.ROOT);
-                String mime = imageName.endsWith(".png") ? "image/png"
-                        : imageName.endsWith(".jpg") || imageName.endsWith(".jpeg") ? "image/jpeg" : null;
-                if (!seen.add(Base64.getEncoder().encodeToString(picture.getData()))) continue;
-                if (!properties.visionEnabled() || mime == null) {
-                    warnings.add("Có hình Word chưa được đọc: " + imageName + ". Có thể xuất PDF để xử lý.");
-                    continue;
-                }
-                if (++imagesRead > properties.maxVisionPages()) {
-                    throw new DocumentProcessingException("Word có quá nhiều hình cần đọc. Hãy chia tài liệu thành các phần.", null);
-                }
-                text.append("\nHÌNH ẢNH ").append(imagesRead).append(" (").append(imageName).append(")\n")
-                        .append(vision.readImage(picture.getData(), mime)).append('\n');
-            }
-            if (imagesRead > 0) warnings.add("Đã đọc " + imagesRead
-                    + " hình Word bằng AI; phần chữ từ hình được đặt cuối bản trích xuất. Hãy đối chiếu vị trí/chú thích và số liệu.");
-        }
-        return new ParsedDocument(text.toString(), warnings);
-    }
-
-    private void appendTable(StringBuilder text, XWPFTable table) {
-        if (table.getRows().isEmpty()) return;
-        String firstRow = table.getRows().getFirst().getTableCells().stream()
-                .map(cell -> cell.getText().replaceAll("\\s+", " ").strip())
-                .collect(java.util.stream.Collectors.joining(" | "));
-        text.append("\nBảng — dòng đầu: ").append(firstRow).append('\n');
-        for (int row = 1; row < table.getNumberOfRows(); row++) {
-            // Repeat the first row as context, without assuming it really is a header.
-            text.append("Dòng đầu của bảng: ").append(firstRow).append("\nDòng ").append(row + 1).append(": ");
-            text.append(table.getRow(row).getTableCells().stream()
-                    .map(cell -> cell.getText().replaceAll("\\s+", " ").strip())
-                    .collect(java.util.stream.Collectors.joining(" | "))).append('\n');
-        }
-        for (var row : table.getRows()) for (var cell : row.getTableCells()) {
-            for (var nested : cell.getTables()) appendTable(text, nested);
-        }
-    }
 }

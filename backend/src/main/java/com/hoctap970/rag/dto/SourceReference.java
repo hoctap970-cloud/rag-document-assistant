@@ -7,7 +7,7 @@ public record SourceReference(
         String fileName,
         String section,
         int chunkIndex,
-        double score,
+        Double score,
         String excerpt,
         int pageNumber
 ) {

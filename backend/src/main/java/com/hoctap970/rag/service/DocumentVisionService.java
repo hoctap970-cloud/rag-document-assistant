@@ -59,7 +59,7 @@ public class DocumentVisionService {
             throw exception;
         } catch (Exception exception) {
             throw new DocumentProcessingException(
-                    "Không đọc được trang scan/hình ảnh qua Gemini. Kiểm tra API key, hạn mức hoặc OCR tệp trước khi tải lên.", exception);
+                    AiFailureMessages.describe(exception, "Không đọc được trang scan/hình ảnh qua Gemini."), exception);
         }
     }
 }

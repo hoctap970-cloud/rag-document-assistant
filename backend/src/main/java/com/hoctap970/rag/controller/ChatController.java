@@ -21,6 +21,6 @@ public class ChatController {
 
     @PostMapping
     public ChatResponse ask(@Valid @RequestBody ChatRequest request) {
-        return ragService.ask(request.question());
+        return ragService.ask(request.question(), request.documentIds());
     }
 }

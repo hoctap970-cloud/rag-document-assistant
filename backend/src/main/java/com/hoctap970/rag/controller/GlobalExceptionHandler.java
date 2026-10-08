@@ -66,7 +66,7 @@ public class GlobalExceptionHandler {
             AiServiceException exception,
             HttpServletRequest request
     ) {
-        LOGGER.warn("AI service request failed", exception);
+        LOGGER.warn("AI service request failed: {}", exception.getMessage());
         return response(HttpStatus.BAD_GATEWAY, exception.getMessage(), request);
     }
 
@@ -75,7 +75,7 @@ public class GlobalExceptionHandler {
             DocumentProcessingException exception,
             HttpServletRequest request
     ) {
-        LOGGER.warn("Document processing failed", exception);
+        LOGGER.warn("Document processing failed: {}", exception.getMessage());
         return response(HttpStatus.UNPROCESSABLE_CONTENT, exception.getMessage(), request);
     }
 

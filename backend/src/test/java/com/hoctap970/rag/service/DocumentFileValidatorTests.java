@@ -50,4 +50,13 @@ class DocumentFileValidatorTests {
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("không được để trống");
     }
+
+    @Test void cleansBrowserPathsAndRejectsControlCharactersAndOversizedFiles() {
+        assertThat(validator.validateAndCleanFileName(new MockMultipartFile("file", "C:\\fakepath\\Bài giảng.docx", "", new byte[]{1})))
+                .isEqualTo("Bài giảng.docx");
+        assertThatThrownBy(() -> validator.validateAndCleanFileName(new MockMultipartFile("file", "bad\nname.pdf", "", new byte[]{1})))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> validator.validateAndCleanFileName(new MockMultipartFile("file", "large.pdf", "", new byte[10 * 1024 * 1024 + 1])))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("10 MB");
+    }
 }

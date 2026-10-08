@@ -4,7 +4,11 @@ const state = {
     selectedFile: null,
     refreshing: false,
     uploading: false,
-    asking: false
+    asking: false,
+    checkingAi: false,
+    deleting: false,
+    aiReady: null,
+    messageCount: 0
 };
 
 const elements = {
@@ -46,9 +50,19 @@ const elements = {
     signatureLabel: document.querySelector("#signatureLabel"),
     toast: document.querySelector("#toast")
 };
+Object.assign(elements, {
+    documentScope: document.querySelector("#documentScope"),
+    newChatButton: document.querySelector("#newChatButton"),
+    checkAiButton: document.querySelector("#checkAiButton"),
+    aiCheckDialog: document.querySelector("#aiCheckDialog"),
+    closeAiCheck: document.querySelector("#closeAiCheck"),
+    aiCheckStatus: document.querySelector("#aiCheckStatus"),
+    aiCheckModels: document.querySelector("#aiCheckModels"),
+    uploadFeedback: document.querySelector("#uploadFeedback")
+});
 
 async function api(path, options = {}) {
-    const response = await fetch(path, options);
+    const response = await fetch(path, {cache: "no-store", ...options});
     const contentType = response.headers.get("content-type") || "";
     const body = contentType.includes("application/json") ? await response.json() : null;
 
@@ -81,11 +95,14 @@ async function refresh() {
 
 function renderStatus() {
     const connected = Boolean(state.health);
-    elements.serviceStatus.className = `status-pill${state.refreshing ? "" : connected ? " online" : " error"}`;
+    const aiFailed = connected && state.health.geminiConfigured && state.aiReady === false;
+    elements.serviceStatus.className = `status-pill${state.refreshing ? "" : connected && !aiFailed ? " online" : " error"}`;
     elements.serviceStatus.lastElementChild.textContent = state.refreshing
         ? "Đang kết nối"
         : !connected ? "Mất kết nối"
-            : state.health.geminiConfigured ? "Đã kết nối" : "Chưa thiết lập AI";
+            : state.health.geminiConfigured ? state.aiReady === false ? "AI chưa sẵn sàng" : state.aiReady ? "AI đã kiểm tra" : "Sẵn sàng" : "Chưa thiết lập AI";
+    elements.serviceStatus.title = state.aiReady ? "Chat và embedding đã được kiểm tra trong phiên này"
+        : "Trạng thái backend. Bấm Kiểm tra AI để thử chat và embedding thật.";
     elements.configBanner.classList.toggle("hidden", !connected || state.health.geminiConfigured);
     elements.retryConnection.classList.toggle("hidden", connected);
     elements.retryConnection.disabled = state.refreshing;
@@ -93,6 +110,14 @@ function renderStatus() {
 }
 
 function renderDocuments() {
+    const previousScope = elements.documentScope.value;
+    const choices = [documentNode("option", "", "Toàn bộ thư viện")];
+    choices[0].value = "";
+    state.documents.forEach(file => {
+        const option = documentNode("option", "", file.fileName); option.value = file.id; choices.push(option);
+    });
+    elements.documentScope.replaceChildren(...choices);
+    elements.documentScope.value = state.documents.some(file => file.id === previousScope) ? previousScope : "";
     elements.documentCount.textContent = String(state.documents.length);
     elements.chunkCount.textContent = String(
         state.documents.reduce((total, document) => total + document.chunkCount, 0)
@@ -149,7 +174,7 @@ function createDocumentItem(document) {
 
 async function uploadSelectedFile(event) {
     event.preventDefault();
-    if (state.uploading || state.asking || state.refreshing || !state.health?.geminiConfigured) return;
+    if (state.uploading || state.asking || state.refreshing || state.checkingAi || state.deleting || !state.health?.geminiConfigured) return;
     if (!state.selectedFile) {
         showToast("Hãy chọn một tệp PDF, DOC hoặc DOCX.", true);
         return;
@@ -160,6 +185,7 @@ async function uploadSelectedFile(event) {
     formData.append("readMode", extensionOf(state.selectedFile.name || "") === "PDF"
         && elements.deepRead.checked ? "DEEP" : "AUTO");
     state.uploading = true;
+    uploadFeedback("Đang đọc tài liệu và tạo chỉ mục. Tệp có ảnh hoặc chọn đọc kỹ có thể cần nhiều lượt AI.");
     updateControls();
 
     try {
@@ -171,7 +197,11 @@ async function uploadSelectedFile(event) {
             ? "Có lưu ý về nội dung trích xuất trong thư viện." : "Bạn có thể bắt đầu đặt câu hỏi."}`);
         resetFileSelection();
         await refresh();
+        elements.documentScope.value = result.documentId || "";
+        uploadFeedback(`Đã đọc ${result.fileName}: ${result.chunkCount} đoạn. ${result.warnings?.length ? "Mở lưu ý trong thư viện trước khi hỏi." : "Bạn có thể bắt đầu đặt câu hỏi."}`);
+        elements.questionInput.focus();
     } catch (error) {
+        uploadFeedback(error.message, true);
         showToast(error.message, true);
     } finally {
         state.uploading = false;
@@ -187,13 +217,15 @@ function chooseFile(file) {
     if (!["PDF", "DOC", "DOCX"].includes(extension)) {
         resetFileSelection();
         updateControls();
+        uploadFeedback("Chỉ hỗ trợ tệp PDF, DOC và DOCX.", true);
         showToast("Chỉ hỗ trợ tệp PDF, DOC và DOCX.", true);
         return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size === 0 || file.size > 10 * 1024 * 1024) {
         resetFileSelection();
         updateControls();
-        showToast("Tệp vượt quá giới hạn 10 MB.", true);
+        const message = file.size === 0 ? "Tệp trống. Hãy chọn tài liệu có nội dung." : "Tệp vượt quá giới hạn 10 MB.";
+        uploadFeedback(message, true); showToast(message, true);
         return;
     }
 
@@ -201,6 +233,8 @@ function chooseFile(file) {
     elements.deepRead.checked = false;
     elements.dropTitle.textContent = file.name;
     elements.dropHint.textContent = `${formatBytes(file.size)} · Sẵn sàng để đọc`;
+    const sameName = state.documents.some(document => document.fileName?.normalize("NFC").toLowerCase() === file.name.normalize("NFC").toLowerCase());
+    uploadFeedback(sameName ? "Tệp cùng tên sẽ thay thế bản cũ sau khi đọc thành công." : "");
     updateControls();
 }
 
@@ -212,35 +246,39 @@ function resetFileSelection() {
 }
 
 async function deleteDocument(document) {
+    if (state.deleting || state.uploading || state.asking || state.refreshing || state.checkingAi) return;
     if (!window.confirm(`Xóa “${document.fileName}” khỏi bộ nhớ RAM?`)) {
         return;
     }
+    state.deleting = true; updateControls();
     try {
         await api(`/api/documents/${document.id}`, { method: "DELETE" });
         showToast(`Đã xóa ${document.fileName}.`);
         await refresh();
     } catch (error) {
         showToast(error.message, true);
-    }
+    } finally { state.deleting = false; updateControls(); }
 }
 
 async function clearDocuments() {
+    if (state.deleting || state.uploading || state.asking || state.refreshing || state.checkingAi) return;
     if (state.documents.length === 0 || !window.confirm("Xóa toàn bộ tài liệu và vector khỏi RAM?")) {
         return;
     }
+    state.deleting = true; updateControls();
     try {
         await api("/api/documents", { method: "DELETE" });
         showToast("Đã xóa toàn bộ tài liệu.");
         await refresh();
     } catch (error) {
         showToast(error.message, true);
-    }
+    } finally { state.deleting = false; updateControls(); }
 }
 
 async function askQuestion(event) {
     event.preventDefault();
     const question = elements.questionInput.value.trim();
-    if (!question || state.asking || state.uploading || state.refreshing
+    if (!question || state.asking || state.uploading || state.refreshing || state.checkingAi || state.deleting
             || !state.health?.geminiConfigured || state.documents.length === 0) {
         return;
     }
@@ -257,7 +295,7 @@ async function askQuestion(event) {
         const response = await api("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question })
+            body: JSON.stringify({ question, documentIds: elements.documentScope.value ? [elements.documentScope.value] : [] })
         });
         loadingMessage.remove();
         appendMessage("assistant", response.answer, response.sources, response.warnings);
@@ -275,6 +313,7 @@ async function askQuestion(event) {
 }
 
 function appendMessage(role, text, sources = [], warnings = []) {
+    state.messageCount++;
     const message = documentNode("article", `message ${role}`);
     const avatar = documentNode("div", "message-avatar", role === "user" ? "Bạn" : "");
     if (role !== "user") {
@@ -284,12 +323,26 @@ function appendMessage(role, text, sources = [], warnings = []) {
     }
     avatar.setAttribute("aria-label", role === "user" ? "Bạn" : "Trợ lý AI");
     const body = documentNode("div", "message-body");
-    body.append(documentNode("div", "bubble", text));
+    const bubble = documentNode("div", "bubble");
+    if (role === "assistant" && typeof renderAnswer === "function") {
+        bubble.classList.add("formatted"); bubble.append(renderAnswer(text, sources, openSource));
+    } else bubble.textContent = text;
+    body.append(bubble);
+    if (role === "assistant") {
+        const copy = documentNode("button", "copy-answer", "Sao chép câu trả lời"); copy.type = "button";
+        copy.addEventListener("click", async () => {
+            try { await navigator.clipboard.writeText(text); showToast("Đã sao chép câu trả lời."); }
+            catch { showToast("Trình duyệt chưa cho phép sao chép. Bạn có thể chọn và sao chép phần chữ.", true); }
+        });
+        body.append(copy);
+    }
     if (warnings.length) body.append(createWarnings(warnings, "Lưu ý về độ đầy đủ của câu trả lời"));
 
     if (sources.length > 0) {
-        body.append(documentNode("div", "sources-title", `Nguồn đã truy xuất (${sources.length})`));
-        sources.forEach((source, index) => body.append(createSourceCard(source, index)));
+        const sourceList = documentNode("details", "source-list");
+        sourceList.append(documentNode("summary", "sources-title", `Xem ${sources.length} nguồn đã truy xuất`));
+        sources.forEach((source, index) => sourceList.append(createSourceCard(source, index)));
+        body.append(sourceList);
     }
 
     message.append(avatar, body);
@@ -329,8 +382,8 @@ function createSourceCard(source, index) {
         `[Nguồn ${index + 1}] ${source.fileName}${source.pageNumber > 0 ? ` · trang ${source.pageNumber}` : ""} · ${source.section}`
     );
     title.title = `${source.fileName} · ${source.section}`;
-    const score = documentNode("span", "source-score", `Tương đồng ${Math.round(source.score * 100)}%`);
-    score.title = "Độ tương đồng với câu hỏi, không phải độ chính xác của câu trả lời";
+    const score = documentNode("span", "source-score", source.score == null ? "Tìm theo từ khóa" : `Tương đồng ${Math.round(source.score * 100)}%`);
+    score.title = source.score == null ? "Lượt này không có điểm tương đồng ngữ nghĩa" : "Độ tương đồng với câu hỏi, không phải độ chính xác của câu trả lời";
     header.append(title, score);
     card.append(
         header,
@@ -400,7 +453,11 @@ function renderViewerChunks(chunks, targetIndex) {
 function updateControls() {
     const configured = Boolean(state.health?.geminiConfigured);
     const hasDocuments = state.documents.length > 0;
-    const busy = state.uploading || state.asking || state.refreshing;
+    const busy = state.uploading || state.asking || state.refreshing || state.checkingAi || state.deleting;
+    elements.documentScope.disabled = busy || !hasDocuments;
+    elements.newChatButton.disabled = busy || state.messageCount === 0;
+    elements.checkAiButton.disabled = busy || !configured;
+    elements.checkAiButton.textContent = state.checkingAi ? "Đang kiểm tra…" : "Kiểm tra AI";
     elements.uploadButton.disabled = busy || !state.selectedFile || !configured;
     elements.uploadLabel.textContent = state.uploading ? "Đang đọc tài liệu..." : "Phân tích tài liệu";
     elements.uploadSpinner.classList.toggle("hidden", !state.uploading);
@@ -484,6 +541,35 @@ function createWarnings(warnings, title) {
     warnings.forEach(warning => details.append(documentNode("p", "", warning)));
     return details;
 }
+
+function uploadFeedback(text, error = false) {
+    elements.uploadFeedback.textContent = text;
+    elements.uploadFeedback.className = `upload-feedback${text ? "" : " hidden"}${error ? " error" : ""}`;
+}
+
+async function checkAi() {
+    if (state.checkingAi || state.uploading || state.asking || state.refreshing || state.deleting || !state.health?.geminiConfigured) return;
+    state.checkingAi = true; updateControls();
+    elements.aiCheckStatus.textContent = "Đang thử tìm kiếm và trả lời bằng Gemini thật…";
+    elements.aiCheckModels.textContent = "";
+    elements.aiCheckDialog.showModal();
+    try {
+        const result = await api("/api/health/ai", {method: "POST"});
+        state.aiReady = result.ready;
+        elements.aiCheckStatus.textContent = result.message;
+        elements.aiCheckModels.textContent = `Trả lời: ${result.chatModel} — ${result.chatStatus}\nTìm kiếm: ${result.embeddingModel} — ${result.embeddingStatus}`;
+    } catch (error) { state.aiReady = false; elements.aiCheckStatus.textContent = error.message; }
+    finally { state.checkingAi = false; renderStatus(); }
+}
+
+elements.checkAiButton.addEventListener("click", checkAi);
+elements.closeAiCheck.addEventListener("click", () => elements.aiCheckDialog.close());
+elements.newChatButton.addEventListener("click", () => {
+    if (state.asking || state.uploading || state.refreshing || state.checkingAi || state.deleting) return;
+    elements.messageList.replaceChildren(elements.welcome);
+    state.messageCount = 0; elements.questionInput.value = ""; updateControls();
+    elements.messageList.scrollTop = 0; elements.questionInput.focus();
+});
 
 const identityKey = "nova.identity";
 function readIdentity() {

@@ -1,5 +1,7 @@
 # NOVA Studio: whole-workspace redesign
 
+Historical design note. Superseded by [NOVA Prism](PRISM_DESIGN.md), which follows the user's subsequent request for a more expressive neon interface and richer interactions.
+
 ## Design read
 
 A document research application for Vietnamese students, with a calm, artistic, contemporary visual language. The latest brief asks for a memorable whole page, creative structure, satisfying effects and a gentle first impression. Soft light and mineral colors supersede the previous high-contrast neon direction. Preserve NOVA, actual documents, API routes, upload, questions, citations and personalization.

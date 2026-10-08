@@ -34,5 +34,8 @@ jobs:
       - name: Run tests
         run: ./mvnw --batch-mode test
 
+      - name: Frontend interaction and effects tests
+        run: node --test src/test/js/*.test.cjs
+
       - name: Package application
         run: ./mvnw --batch-mode --no-transfer-progress -DskipTests package

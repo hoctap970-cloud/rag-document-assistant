@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Hỏi tài liệu PDF và Word bằng tiếng Việt, xem nguồn và kiểm chứng câu trả lời cùng NOVA.">
-    <meta name="theme-color" content="#0b1018">
+    <meta name="theme-color" content="#eef4f3">
     <title>NOVA | Hỏi đáp tài liệu</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="preload" href="/fonts/Manrope-Regular.ttf" as="font" type="font/ttf" crossorigin>
     <link rel="preload" href="/fonts/Manrope-ExtraBold.ttf" as="font" type="font/ttf" crossorigin>
-    <link rel="stylesheet" href="/css/nova.css?v=neon-2">
+    <link rel="stylesheet" href="/css/nova.css?v=studio-1">
 </head>
 <body>
 <a class="skip-link" href="#questionInput">Đến ô đặt câu hỏi</a>
@@ -17,18 +17,18 @@
     <header class="topbar">
         <a class="brand" href="/" aria-label="NOVA, trang chủ">
             <span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="14" stroke="currentColor" stroke-width="1.6"/><path d="M20 8v24M8 20h24M11.5 11.5l17 17m0-17-17 17" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="20" cy="20" r="5.5" fill="currentColor"/></svg></span>
-            <span class="brand-lockup"><strong>NOVA<span>.</span></strong><small>Document intelligence</small></span>
+            <span class="brand-lockup"><strong>NOVA<span>.</span></strong><small>Không gian tri thức</small></span>
         </a>
-        <div class="topbar-center">Không gian tài liệu của bạn</div>
+        <nav class="workspace-nav" aria-label="Điều hướng không gian"><a href="#chatHeading" aria-current="location">Hỏi đáp</a><a href="#library">Tài liệu</a></nav>
         <div class="topbar-actions">
-            <label class="motion-control" title="Bật hoặc tắt chuyển động trang trí"><input id="ambientMotion" type="checkbox" checked><span class="ui-icon icon-sparkles" aria-hidden="true"></span><span>Chuyển động</span></label>
+            <label class="motion-control" title="Bật hoặc tắt chuyển động trang trí"><input id="ambientMotion" type="checkbox" checked aria-label="Bật hoặc tắt chuyển động trang trí"><span class="ui-icon icon-sparkles" aria-hidden="true"></span><span>Chuyển động</span></label>
             <button id="personalizeButton" class="identity-button" type="button" aria-label="Tùy chỉnh không gian của bạn" aria-haspopup="dialog"><span class="identity-mark" aria-hidden="true">N</span><span id="ownerLabel">Không gian của bạn</span><span class="ui-icon icon-arrow" aria-hidden="true"></span></button>
         </div>
     </header>
     <div id="configBanner" class="config-banner hidden" role="alert"><span class="config-mark" aria-hidden="true">!</span><div><strong>Cần kết nối AI để bắt đầu.</strong> Đặt <code>GEMINI_API_KEY</code> trong Run Configuration của IntelliJ, rồi chạy lại ứng dụng.</div></div>
     <main id="workspace" class="workspace">
         <aside class="sidebar" aria-label="Quản lý tài liệu">
-            <div class="sidebar-heading"><h1>Tài liệu của bạn</h1><p>Mọi câu trả lời bắt đầu từ đây.</p></div>
+            <div class="sidebar-heading"><h1>Tài liệu của bạn</h1><p>Gom kiến thức về cùng một nơi.</p></div>
             <section class="upload-panel" aria-labelledby="uploadTitle">
                 <h2 id="uploadTitle" class="sr-only">Thêm tài liệu</h2>
                 <form id="uploadForm">
@@ -52,24 +52,24 @@
         </aside>
         <section class="chat-panel" aria-labelledby="chatHeading">
             <div class="chat-header">
-                <div class="chat-title"><span class="chat-heading-icon ui-icon icon-sparkles" aria-hidden="true"></span><h2 id="chatHeading">Hỏi tài liệu</h2></div>
+                <div class="chat-title"><span class="chat-heading-icon ui-icon icon-sparkles" aria-hidden="true"></span><div><h2 id="chatHeading" tabindex="-1">Không gian hỏi đáp</h2><p>Đọc sâu hơn. Hiểu rõ hơn.</p></div></div>
                 <div class="connection-controls"><div id="serviceStatus" class="status-pill" aria-live="polite"><span class="status-dot" aria-hidden="true"></span><span>Đang kết nối</span></div><button id="retryConnection" class="retry-connection hidden" type="button">Kết nối lại</button></div>
             </div>
             <div id="messageList" class="message-list" aria-live="polite">
                 <div id="welcome" class="welcome-card">
                     <section class="page-intro" aria-label="Bắt đầu với NOVA">
-                        <div class="intro-art" aria-hidden="true"><img src="/images/document-light.webp" width="1200" height="800" alt="" fetchpriority="high"></div>
-                        <div class="intro-copy"><span class="intro-label"><span class="ui-icon icon-file" aria-hidden="true"></span>Từ tài liệu đến câu trả lời</span><h3>Tìm điều bạn cần.<br>Ngay trong tài liệu.</h3><p>Hỏi bằng lời của bạn.<br>Đọc câu trả lời, đối chiếu ngay tại nguồn.</p><a class="intro-action" href="#dropZone">Bắt đầu với một tài liệu<span class="ui-icon icon-arrow" aria-hidden="true"></span></a></div>
+                        <div class="intro-art" aria-hidden="true"><img src="/images/paper-studio.webp" width="1200" height="800" alt="" fetchpriority="high"></div>
+                        <div class="intro-copy"><h3>Mở tài liệu.<br>Mở thêm góc nhìn.</h3><p>Từ một câu hỏi nhỏ đến điều bạn muốn hiểu.<br>Khám phá tài liệu, cùng NOVA.</p><div class="intro-guidance"><span class="ui-icon icon-upload" aria-hidden="true"></span><span>Thêm tài liệu để bắt đầu cuộc trò chuyện.</span></div></div>
                     </section>
-                    <div class="welcome-bottom"><p class="welcome-heading">Bạn có thể bắt đầu bằng...</p><div class="prompt-grid" aria-label="Gợi ý câu hỏi">
-                        <button class="prompt-chip" type="button" data-question="Tài liệu nói về chủ đề chính nào?"><span class="ui-icon icon-bulb" aria-hidden="true"></span><span>Tìm ý chính</span></button>
-                        <button class="prompt-chip" type="button" data-question="Hãy tóm tắt các ý quan trọng."><span class="ui-icon icon-list" aria-hidden="true"></span><span>Tóm tắt nội dung</span></button>
-                        <button class="prompt-chip" type="button" data-question="Có những khái niệm nào cần ghi nhớ?"><span class="ui-icon icon-book" aria-hidden="true"></span><span>Khái niệm cần nhớ</span></button>
-                        <button class="prompt-chip" type="button" data-question="Kết luận của tài liệu là gì?"><span class="ui-icon icon-check" aria-hidden="true"></span><span>Đọc kết luận</span></button>
+                    <div class="welcome-bottom"><div class="welcome-heading"><h4>Mỗi câu hỏi, một góc nhìn</h4></div><div class="prompt-grid" aria-label="Gợi ý câu hỏi">
+                        <button class="prompt-chip" type="button" data-question="Tài liệu nói về chủ đề chính nào?"><span class="ui-icon icon-bulb" aria-hidden="true"></span><span class="prompt-copy"><strong>Nhìn toàn cảnh</strong><small>Tìm chủ đề và những ý chính</small></span><span class="prompt-cue ui-icon icon-arrow" aria-hidden="true"></span></button>
+                        <button class="prompt-chip" type="button" data-question="Hãy tóm tắt các ý quan trọng."><span class="ui-icon icon-list" aria-hidden="true"></span><span class="prompt-copy"><strong>Tóm tắt nội dung</strong><small>Giữ lại điều quan trọng</small></span><span class="prompt-cue ui-icon icon-arrow" aria-hidden="true"></span></button>
+                        <button class="prompt-chip" type="button" data-question="Có những khái niệm nào cần ghi nhớ?"><span class="ui-icon icon-book" aria-hidden="true"></span><span class="prompt-copy"><strong>Khái niệm cần nhớ</strong><small>Hiểu từng ý, từng thuật ngữ</small></span><span class="prompt-cue ui-icon icon-arrow" aria-hidden="true"></span></button>
+                        <button class="prompt-chip" type="button" data-question="Kết luận của tài liệu là gì?"><span class="ui-icon icon-check" aria-hidden="true"></span><span class="prompt-copy"><strong>Đọc kết luận</strong><small>Kết nối các luận điểm</small></span><span class="prompt-cue ui-icon icon-arrow" aria-hidden="true"></span></button>
                     </div></div>
                 </div>
             </div>
-            <div class="composer-wrap"><label class="composer-label" for="questionInput">Câu hỏi của bạn</label><form id="chatForm" class="composer"><textarea id="questionInput" rows="1" maxlength="2000" placeholder="Tải tài liệu lên rồi nhập câu hỏi..."></textarea><button id="askButton" class="send-button" type="submit" aria-label="Gửi câu hỏi"><span class="ui-icon icon-send" aria-hidden="true"></span></button></form><div class="composer-footnote"><span>Enter để gửi · Shift + Enter xuống dòng</span><span class="source-promise">Luôn đối chiếu câu trả lời với nguồn</span></div></div>
+            <div class="composer-wrap"><label class="composer-label" for="questionInput">Câu hỏi của bạn</label><form id="chatForm" class="composer"><textarea id="questionInput" rows="1" maxlength="2000" placeholder="Tải tài liệu lên rồi nhập câu hỏi..."></textarea><button id="askButton" class="send-button" type="submit" aria-label="Gửi câu hỏi"><span class="ui-icon icon-send" aria-hidden="true"></span></button></form><div class="composer-footnote"><span>Enter để gửi · Shift + Enter xuống dòng</span><span class="source-promise">Đọc nguồn để kiểm chứng câu trả lời</span></div></div>
         </section>
     </main>
 </div>
@@ -83,7 +83,7 @@
     <form id="identityForm"><div class="identity-dialog-heading"><span class="dialog-label">Không gian của bạn</span><button id="closeIdentity" class="viewer-close" type="button" aria-label="Đóng tùy chỉnh"><span class="ui-icon icon-close" aria-hidden="true"></span></button></div><h2 id="identityTitle">Cá nhân hóa</h2><p>Đặt tên và một lời nhắn cho không gian làm việc của bạn.</p><label for="ownerInput">Tên hoặc biệt danh</label><input id="ownerInput" name="owner" maxlength="36" placeholder="Bạn muốn được gọi là gì?" autocomplete="nickname"><label for="signatureInput">Một câu dành riêng cho bạn</label><input id="signatureInput" name="signature" maxlength="80" placeholder="Một góc riêng. Một cách nghĩ riêng."><button class="button button-primary button-full" type="submit">Lưu thay đổi<span class="ui-icon icon-check" aria-hidden="true"></span></button><small>Chỉ lưu trên trình duyệt này. Để trống để dùng lại mặc định.</small></form>
 </dialog>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="/js/app.js?v=neon-2" defer></script>
-<script src="/js/visuals.js?v=neon-2" defer></script>
+<script src="/js/app.js?v=studio-1" defer></script>
+<script src="/js/visuals.js?v=studio-1" defer></script>
 </body>
 </html>

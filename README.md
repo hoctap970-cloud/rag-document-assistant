@@ -76,8 +76,11 @@ Frontend không có thư mục dự án riêng: Spring Boot phục vụ trực t
 | `static/index.html` | Chữ, các khu vực trên trang, biểu mẫu và cửa sổ xem nguồn |
 | `static/css/nova.css` | Giao diện NOVA, màu sắc, bố cục và hiển thị trên điện thoại |
 | `static/js/app.js` | Các thao tác upload, hỏi đáp, trạng thái, danh sách tài liệu và mở nguồn |
+| `static/js/visuals.js` | Điều hướng, lựa chọn chuyển động và ánh sáng theo con trỏ |
 
-Giao diện **NOVA** dùng nền than tối và ánh sáng neon xanh điện, với ảnh các trang tài liệu bằng kính được tạo riêng cho màn hình chào. Khu chat, nguồn trích dẫn và cửa sổ xem tài liệu dùng chữ lớn, cùng bảng màu. Nút **Chuyển động** ở góc trên bật/tắt hoạt ảnh trang trí và nhớ lựa chọn trên trình duyệt; giao diện cũng tuân theo `prefers-reduced-motion` của hệ thống. Bấm tên không gian ở góc trên phải (biểu tượng chữ cái trên điện thoại) để đặt biệt danh và câu ký tên; hai thông tin này chỉ lưu trong `localStorage`. Các vùng tài liệu và hội thoại cuộn riêng trên desktop, chuyển thành một cột trên điện thoại; thư viện có thể thu gọn. Phông Manrope, ảnh WebP và biểu tượng Tabler đều được lưu cùng ứng dụng, không cần CDN. Giấy phép nằm trong `static/fonts/OFL.txt` và `static/icons/LICENSE.txt`. Xem [ghi chú thiết kế](docs/FRONTEND_DESIGN.md) để biết cách áp dụng ba skill frontend và prompt tạo ảnh.
+Giao diện **NOVA Studio** dùng nền sương sáng, xanh hồ nước và tím phấn, với tác phẩm giấy/kính được tạo riêng cho màn hình chào. Khu hỏi đáp ở bên trái, bàn tài liệu ở bên phải; các gợi ý câu hỏi có kích thước khác nhau và ô nhập là một bề mặt viết riêng. Bấm tên tệp trong thư viện để đọc toàn bộ bản chữ, hoặc bấm trích dẫn để mở khung đọc bên phải và đánh dấu đoạn liên quan. Cùng bảng màu và kiểu chữ được dùng cho hội thoại, thư viện, nguồn và cửa sổ cá nhân hóa.
+
+Ánh sáng phản hồi theo con trỏ trên các vùng thao tác; ảnh chuyển động nhẹ, nút phản hồi khi bấm và khung đọc xuất hiện từ bên phải. Nút **Chuyển động** ở góc trên bật/tắt trang trí và nhớ lựa chọn trên trình duyệt; giao diện cũng tuân theo `prefers-reduced-motion`. Bấm tên không gian ở góc trên phải (biểu tượng chữ cái trên điện thoại) để đặt biệt danh và câu ký tên; hai thông tin này chỉ lưu trong `localStorage`. Trên điện thoại, trang chuyển thành một cột và thư viện có thể thu gọn. Ở cửa sổ desktop thấp, màn hình chào cuộn cùng trang để hiển thị đủ nội dung. Phông Manrope, ảnh WebP và biểu tượng Tabler đều được lưu cùng ứng dụng, không cần CDN. Giấy phép nằm trong `static/fonts/OFL.txt` và `static/icons/LICENSE.txt`. Xem [ghi chú thiết kế NOVA Studio](docs/STUDIO_REDESIGN.md) để biết cách áp dụng ba skill frontend và prompt tạo ảnh.
 
 Toàn bộ dùng HTML/CSS/JavaScript thuần, không cần chạy thêm npm hay máy chủ frontend. Sau khi sửa FE, hãy chạy lại `BackendApplication` trong IntelliJ rồi tải lại `http://localhost:8080` để xem bản mới.
 
@@ -153,7 +156,7 @@ Biến môi trường trên chỉ có hiệu lực trong cửa sổ PowerShell h
 
 1. Chọn hoặc kéo thả một tệp PDF/DOC/DOCX.
 2. Với PDF khó, có thể chọn **Đọc kỹ từng trang PDF** trước khi nhấn **Phân tích tài liệu**. Chế độ này đọc mọi trang bằng AI, tốn thêm thời gian/quota và mặc định giới hạn 40 trang. Không chọn thì dùng chế độ tự động.
-3. Chờ thông báo số vector đã tạo và kiểm tra tài liệu xuất hiện ở cột trái.
+3. Chờ thông báo số vector đã tạo và kiểm tra tài liệu xuất hiện trong **Thư viện**. Có thể bấm tên tệp để đọc bản chữ trích xuất.
 4. Nhập câu hỏi có đáp án nằm trong tài liệu.
 5. Đọc câu trả lời và bấm một nguồn bên dưới. Cửa sổ sẽ mở bản chữ trích xuất, cuộn đến đoạn được truy xuất và đánh dấu nổi bật đoạn đó. Chọn **Mở tệp gốc** nếu cần xem bố cục PDF/Word ban đầu.
 6. Dùng nút `×` để xóa một tài liệu hoặc **Xóa hết** để làm sạch RAM.
@@ -245,7 +248,7 @@ Kiểm tra trạng thái và sự kiện frontend bằng Node.js 20 trở lên (
 node --test backend/src/test/js/app.test.cjs
 ```
 
-Bộ kiểm tra này bao gồm mất kết nối/kết nối lại, kéo thả khi đang upload, chặn upload trong lúc hỏi đáp, giữ câu hỏi khi API lỗi, trạng thái nút gửi và nhập chữ bằng IME. Bố cục và cửa sổ xem nguồn cần kiểm tra thêm trên trình duyệt ở màn hình laptop và điện thoại.
+Bộ kiểm tra này bao gồm mất kết nối/kết nối lại, kéo thả khi đang upload, chặn upload trong lúc hỏi đáp, giữ câu hỏi khi API lỗi, trạng thái nút gửi, nhập chữ bằng IME và mở toàn bộ bản chữ từ thư viện. Bố cục và cửa sổ xem nguồn cần kiểm tra thêm trên trình duyệt ở màn hình laptop và điện thoại.
 
 ## Quy trình Git/GitHub đề xuất
 

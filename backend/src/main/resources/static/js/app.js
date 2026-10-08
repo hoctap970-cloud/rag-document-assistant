@@ -118,8 +118,13 @@ function createDocumentItem(document) {
     const item = documentNode("div", "document-item");
     const icon = documentNode("span", "file-icon", extensionOf(document.fileName));
     const info = documentNode("div", "document-info");
-    const name = documentNode("strong", "", document.fileName);
+    const name = documentNode("button", "document-open", document.fileName);
+    name.type = "button";
     name.title = document.fileName;
+    name.setAttribute("aria-label", `Đọc ${document.fileName}`);
+    name.addEventListener("click", () => openSource({
+        documentId: document.id, fileName: document.fileName, chunkIndex: null
+    }));
     const meta = documentNode(
         "span",
         "",
@@ -324,7 +329,7 @@ function createSourceCard(source, index) {
         `[Nguồn ${index + 1}] ${source.fileName}${source.pageNumber > 0 ? ` · trang ${source.pageNumber}` : ""} · ${source.section}`
     );
     title.title = `${source.fileName} · ${source.section}`;
-    const score = documentNode("span", "source-score", `${Math.round(source.score * 100)}%`);
+    const score = documentNode("span", "source-score", `Tương đồng ${Math.round(source.score * 100)}%`);
     score.title = "Độ tương đồng với câu hỏi, không phải độ chính xác của câu trả lời";
     header.append(title, score);
     card.append(
@@ -341,7 +346,8 @@ async function openSource(source) {
     const request = ++viewerRequest;
     elements.viewerTitle.textContent = source.fileName;
     elements.viewerSubtitle.textContent = "Đang mở bản chữ của tài liệu…";
-    elements.viewerLocation.textContent = `${source.pageNumber > 0 ? `Trang ${source.pageNumber} · ` : ""}Đoạn ${source.chunkIndex} · ${source.section}`;
+    elements.viewerLocation.textContent = source.chunkIndex == null ? "Toàn bộ nội dung tài liệu"
+        : `${source.pageNumber > 0 ? `Trang ${source.pageNumber} · ` : ""}Đoạn ${source.chunkIndex} · ${source.section}`;
     elements.viewerOriginal.href = `/api/documents/${encodeURIComponent(source.documentId)}/original`;
     elements.viewerContent.replaceChildren();
     elements.sourceViewer.showModal();
@@ -384,8 +390,10 @@ function renderViewerChunks(chunks, targetIndex) {
             block: selectedChunk.offsetHeight > elements.viewerContent.clientHeight ? "start" : "center",
             behavior: "auto"
         }));
-    } else {
+    } else if (targetIndex != null) {
         elements.viewerLocation.textContent = "Không tìm thấy đoạn nguồn trong tài liệu này.";
+    } else {
+        elements.viewerContent.scrollTop = 0;
     }
 }
 

@@ -103,9 +103,9 @@ function renderDocuments() {
         const empty = document.createElement("div");
         empty.className = "empty-list";
         empty.append(
-            documentNode("span", "empty-list-icon", "▤"),
-            documentNode("strong", "", "Chưa có tài liệu nào"),
-            documentNode("span", "", "Tài liệu mới sẽ hiện ở đây.")
+            documentNode("span", "empty-list-icon ui-icon icon-file"),
+            documentNode("strong", "", "Chưa có tài liệu"),
+            documentNode("span", "", "Tải tệp lên để bắt đầu hỏi đáp.")
         );
         elements.documentList.append(empty);
     } else {
@@ -130,7 +130,10 @@ function createDocumentItem(document) {
         info.append(createWarnings(document.warnings, "Lưu ý khi đọc tài liệu"));
     }
 
-    const remove = documentNode("button", "delete-button", "×");
+    const remove = documentNode("button", "delete-button");
+    const removeIcon = documentNode("span", "ui-icon icon-close");
+    removeIcon.setAttribute("aria-hidden", "true");
+    remove.append(removeIcon);
     remove.type = "button";
     remove.title = `Xóa ${document.fileName}`;
     remove.setAttribute("aria-label", `Xóa ${document.fileName}`);
@@ -199,7 +202,7 @@ function chooseFile(file) {
 function resetFileSelection() {
     state.selectedFile = null;
     elements.fileInput.value = "";
-    elements.dropTitle.textContent = "Thả tệp vào đây";
+    elements.dropTitle.textContent = "Thả tài liệu vào đây";
     elements.dropHint.textContent = "PDF, DOC, DOCX · tối đa 10 MB";
 }
 
@@ -268,7 +271,12 @@ async function askQuestion(event) {
 
 function appendMessage(role, text, sources = [], warnings = []) {
     const message = documentNode("article", `message ${role}`);
-    const avatar = documentNode("div", "message-avatar", role === "user" ? "Bạn" : "✦");
+    const avatar = documentNode("div", "message-avatar", role === "user" ? "Bạn" : "");
+    if (role !== "user") {
+        const icon = documentNode("span", "ui-icon icon-sparkles");
+        icon.setAttribute("aria-hidden", "true");
+        avatar.append(icon);
+    }
     avatar.setAttribute("aria-label", role === "user" ? "Bạn" : "Trợ lý AI");
     const body = documentNode("div", "message-body");
     body.append(documentNode("div", "bubble", text));
@@ -287,7 +295,10 @@ function appendMessage(role, text, sources = [], warnings = []) {
 
 function appendLoadingMessage() {
     const message = documentNode("article", "message assistant");
-    const avatar = documentNode("div", "message-avatar", "✦");
+    const avatar = documentNode("div", "message-avatar");
+    const icon = documentNode("span", "ui-icon icon-sparkles");
+    icon.setAttribute("aria-hidden", "true");
+    avatar.append(icon);
     avatar.setAttribute("aria-label", "Trợ lý AI đang trả lời");
     const body = documentNode("div", "message-body");
     const bubble = documentNode("div", "bubble");
@@ -310,16 +321,16 @@ function createSourceCard(source, index) {
     const title = documentNode(
         "strong",
         "",
-        `[Nguồn ${index + 1}] ${source.fileName}${source.pageNumber > 0 ? ` · trang ${source.pageNumber}` : ""} — ${source.section}`
+        `[Nguồn ${index + 1}] ${source.fileName}${source.pageNumber > 0 ? ` · trang ${source.pageNumber}` : ""} · ${source.section}`
     );
-    title.title = `${source.fileName} — ${source.section}`;
+    title.title = `${source.fileName} · ${source.section}`;
     const score = documentNode("span", "source-score", `${Math.round(source.score * 100)}%`);
     score.title = "Độ tương đồng với câu hỏi, không phải độ chính xác của câu trả lời";
     header.append(title, score);
     card.append(
         header,
         documentNode("p", "", `Đoạn ${source.chunkIndex}: ${source.excerpt}`),
-        documentNode("span", "source-open-hint", "Xem trong tài liệu →")
+        documentNode("span", "source-open-hint", "Xem đoạn này trong tài liệu")
     );
     card.addEventListener("click", () => openSource(source));
     return card;
@@ -383,7 +394,7 @@ function updateControls() {
     const hasDocuments = state.documents.length > 0;
     const busy = state.uploading || state.asking || state.refreshing;
     elements.uploadButton.disabled = busy || !state.selectedFile || !configured;
-    elements.uploadLabel.textContent = state.uploading ? "Đang đọc & lập chỉ mục…" : "Phân tích tài liệu";
+    elements.uploadLabel.textContent = state.uploading ? "Đang đọc tài liệu..." : "Phân tích tài liệu";
     elements.uploadSpinner.classList.toggle("hidden", !state.uploading);
     elements.fileInput.disabled = state.uploading;
     const pdfSelected = extensionOf(state.selectedFile?.name || "") === "PDF";
@@ -395,7 +406,7 @@ function updateControls() {
     elements.questionInput.disabled = busy || !hasDocuments || !configured;
     elements.askButton.disabled = elements.questionInput.disabled || !elements.questionInput.value.trim();
     elements.questionInput.placeholder = state.refreshing ? "Đang kết nối tới backend…"
-        : !state.health ? "Mất kết nối — hãy bấm Kết nối lại…"
+        : !state.health ? "Mất kết nối. Hãy bấm Kết nối lại..."
             : !configured ? "Cần cấu hình GEMINI_API_KEY…"
                 : hasDocuments ? "Hỏi một điều có trong tài liệu…"
                     : "Tải tài liệu lên rồi nhập câu hỏi…";
@@ -405,6 +416,7 @@ function updateControls() {
     document.querySelectorAll(".delete-button").forEach(button => {
         button.disabled = busy || !state.health;
     });
+    resizeTextarea();
 }
 
 function resizeTextarea() {
@@ -557,17 +569,6 @@ document.querySelectorAll(".prompt-chip").forEach(button => {
         updateControls();
         elements.questionInput.focus();
     });
-});
-
-const hero = document.querySelector(".page-intro");
-hero?.addEventListener("pointermove", event => {
-    const bounds = hero.getBoundingClientRect();
-    hero.style.setProperty("--light-x", `${event.clientX - bounds.left}px`);
-    hero.style.setProperty("--light-y", `${event.clientY - bounds.top}px`);
-});
-hero?.addEventListener("pointerleave", () => {
-    hero.style.removeProperty("--light-x");
-    hero.style.removeProperty("--light-y");
 });
 
 renderIdentity();

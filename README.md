@@ -77,7 +77,7 @@ Frontend không có thư mục dự án riêng: Spring Boot phục vụ trực t
 | `static/css/nova.css` | Giao diện NOVA, màu sắc, bố cục và hiển thị trên điện thoại |
 | `static/js/app.js` | Các thao tác upload, hỏi đáp, trạng thái, danh sách tài liệu và mở nguồn |
 
-Giao diện **NOVA** dùng thanh tài liệu nền tối, khu hỏi đáp sáng và điểm nhấn xanh ngọc. Bấm tên không gian ở góc trên phải để đặt biệt danh và câu ký tên; hai thông tin này chỉ lưu trong `localStorage` của trình duyệt. Phông chữ được lưu cùng ứng dụng, kèm giấy phép SIL Open Font License trong `static/fonts/OFL.txt`.
+Giao diện **NOVA** dùng nền than tối và ánh sáng neon xanh điện, với ảnh các trang tài liệu bằng kính được tạo riêng cho màn hình chào. Khu chat, nguồn trích dẫn và cửa sổ xem tài liệu dùng chữ lớn, cùng bảng màu. Nút **Chuyển động** ở góc trên bật/tắt hoạt ảnh trang trí và nhớ lựa chọn trên trình duyệt; giao diện cũng tuân theo `prefers-reduced-motion` của hệ thống. Bấm tên không gian ở góc trên phải (biểu tượng chữ cái trên điện thoại) để đặt biệt danh và câu ký tên; hai thông tin này chỉ lưu trong `localStorage`. Các vùng tài liệu và hội thoại cuộn riêng trên desktop, chuyển thành một cột trên điện thoại; thư viện có thể thu gọn. Phông Manrope, ảnh WebP và biểu tượng Tabler đều được lưu cùng ứng dụng, không cần CDN. Giấy phép nằm trong `static/fonts/OFL.txt` và `static/icons/LICENSE.txt`. Xem [ghi chú thiết kế](docs/FRONTEND_DESIGN.md) để biết cách áp dụng ba skill frontend và prompt tạo ảnh.
 
 Toàn bộ dùng HTML/CSS/JavaScript thuần, không cần chạy thêm npm hay máy chủ frontend. Sau khi sửa FE, hãy chạy lại `BackendApplication` trong IntelliJ rồi tải lại `http://localhost:8080` để xem bản mới.
 

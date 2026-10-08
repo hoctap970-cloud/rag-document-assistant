@@ -76,11 +76,12 @@ Frontend không có thư mục dự án riêng: Spring Boot phục vụ trực t
 | `static/index.html` | Chữ, các khu vực trên trang, biểu mẫu và cửa sổ xem nguồn |
 | `static/css/nova.css` | Giao diện NOVA, màu sắc, bố cục và hiển thị trên điện thoại |
 | `static/js/app.js` | Các thao tác upload, hỏi đáp, trạng thái, danh sách tài liệu và mở nguồn |
-| `static/js/visuals.js` | Điều hướng, lựa chọn chuyển động và ánh sáng theo con trỏ |
+| `static/js/theme.js` | Khôi phục giao diện sáng/tối trước khi trang vẽ lần đầu |
+| `static/js/visuals.js` | Điều hướng, giao diện sáng/tối, chuyển động, ánh sáng và phản hồi tương tác |
 
-Giao diện **NOVA Studio** dùng nền sương sáng, xanh hồ nước và tím phấn, với tác phẩm giấy/kính được tạo riêng cho màn hình chào. Khu hỏi đáp ở bên trái, bàn tài liệu ở bên phải; các gợi ý câu hỏi có kích thước khác nhau và ô nhập là một bề mặt viết riêng. Bấm tên tệp trong thư viện để đọc toàn bộ bản chữ, hoặc bấm trích dẫn để mở khung đọc bên phải và đánh dấu đoạn liên quan. Cùng bảng màu và kiểu chữ được dùng cho hội thoại, thư viện, nguồn và cửa sổ cá nhân hóa.
+Giao diện **NOVA Prism** dùng nền đêm, ánh sáng xanh ngọc và tím dịu, cùng tác phẩm quyển sách bằng kính được tạo riêng. Thanh điều hướng nhỏ ở bên trái, không gian hỏi đáp mở ở giữa và bàn tài liệu bên phải. Các gợi ý câu hỏi được xếp bất đối xứng; ô nhập có ánh sáng khi tập trung. Bấm tên tệp trong thư viện để đọc toàn bộ bản chữ, hoặc bấm trích dẫn để mở khung đọc và đánh dấu đoạn liên quan. Hội thoại, thư viện, nguồn và cửa sổ cá nhân hóa dùng cùng hệ màu và kiểu chữ. Nút **Sáng/Tối** đổi giao diện và nhớ lựa chọn trên trình duyệt.
 
-Ánh sáng phản hồi theo con trỏ trên các vùng thao tác; ảnh chuyển động nhẹ, nút phản hồi khi bấm và khung đọc xuất hiện từ bên phải. Nút **Chuyển động** ở góc trên bật/tắt trang trí và nhớ lựa chọn trên trình duyệt; giao diện cũng tuân theo `prefers-reduced-motion`. Bấm tên không gian ở góc trên phải (biểu tượng chữ cái trên điện thoại) để đặt biệt danh và câu ký tên; hai thông tin này chỉ lưu trong `localStorage`. Trên điện thoại, trang chuyển thành một cột và thư viện có thể thu gọn. Ở cửa sổ desktop thấp, màn hình chào cuộn cùng trang để hiển thị đủ nội dung. Phông Manrope, ảnh WebP và biểu tượng Tabler đều được lưu cùng ứng dụng, không cần CDN. Giấy phép nằm trong `static/fonts/OFL.txt` và `static/icons/LICENSE.txt`. Xem [ghi chú thiết kế NOVA Studio](docs/STUDIO_REDESIGN.md) để biết cách áp dụng ba skill frontend và prompt tạo ảnh.
+Hiệu ứng gồm ánh sáng nền chuyển động, các đường sáng và hạt trên canvas, hình kính nổi và phản hồi theo con trỏ, nghiêng gợi ý câu hỏi, gợn sáng khi bấm nút, quầng sáng vùng tải tệp, vệt quét khi thực sự đang phân tích, ánh sáng ô nhập, nguồn xuất hiện và khung đọc trượt vào. Canvas giới hạn ngân sách vẽ 30fps. Nút **Chuyển động** bật/tắt trang trí và nhớ lựa chọn; giao diện tuân theo `prefers-reduced-motion` và dừng chuyển động khi tab bị ẩn. Bấm tên không gian ở góc trên phải (biểu tượng chữ cái trên điện thoại) để đặt biệt danh và câu ký tên; hai thông tin này chỉ lưu trong `localStorage`. Trên điện thoại, khu hỏi đáp xuất hiện trước, có lối đi trực tiếp đến vùng tải tệp và thư viện có thể thu gọn. Ở cửa sổ desktop thấp, màn hình chào cuộn cùng trang để hiển thị đủ nội dung. Phông Manrope, ảnh WebP có nền trong suốt và biểu tượng Tabler đều được lưu cùng ứng dụng, không cần CDN. Giấy phép nằm trong `static/fonts/OFL.txt` và `static/icons/LICENSE.txt`. Xem [ghi chú thiết kế NOVA Prism](docs/PRISM_DESIGN.md) để biết cách áp dụng ba skill frontend và prompt tạo ảnh.
 
 Toàn bộ dùng HTML/CSS/JavaScript thuần, không cần chạy thêm npm hay máy chủ frontend. Sau khi sửa FE, hãy chạy lại `BackendApplication` trong IntelliJ rồi tải lại `http://localhost:8080` để xem bản mới.
 
@@ -238,17 +239,17 @@ cd backend
 java -jar target\backend-0.0.1-SNAPSHOT.jar
 ```
 
-Kiểm thử gồm Spring context, upload, tách mục, đọc PDF/DOCX thực, truy xuất câu khó giữa dữ liệu nhiễu, đoạn ngoại lệ, ngân sách ngữ cảnh, số trang và mã nguồn. Các kiểm thử thường dùng model giả nên không đo độ chính xác Gemini thực. GitHub Actions tự chạy `test` và `package` trên mọi pull request hoặc push vào `main`.
+Kiểm thử gồm Spring context, upload, tách mục, đọc PDF/DOCX thực, truy xuất câu khó giữa dữ liệu nhiễu, đoạn ngoại lệ, ngân sách ngữ cảnh, số trang và mã nguồn. Các kiểm thử thường dùng model giả nên không đo độ chính xác Gemini thực. GitHub Actions tự chạy kiểm thử Java, kiểm thử frontend bằng Node và `package` trên mọi pull request hoặc push vào `main`.
 
 Sau `test`, bộ đề giả lập 5 câu nằm trong `backend/target/rag-evaluation/`. Bài đánh giá gọi Gemini thật chỉ chạy khi bật `RUN_LIVE_RAG_EVAL=true`; xem [hướng dẫn đánh giá](docs/RAG_QUALITY_GUIDE.md).
 
 Kiểm tra trạng thái và sự kiện frontend bằng Node.js 20 trở lên (không cần cài gói npm), từ thư mục gốc repository:
 
 ```powershell
-node --test backend/src/test/js/app.test.cjs
+node --test backend/src/test/js/app.test.cjs backend/src/test/js/visuals.test.cjs
 ```
 
-Bộ kiểm tra này bao gồm mất kết nối/kết nối lại, kéo thả khi đang upload, chặn upload trong lúc hỏi đáp, giữ câu hỏi khi API lỗi, trạng thái nút gửi, nhập chữ bằng IME và mở toàn bộ bản chữ từ thư viện. Bố cục và cửa sổ xem nguồn cần kiểm tra thêm trên trình duyệt ở màn hình laptop và điện thoại.
+Bộ kiểm tra này bao gồm mất kết nối/kết nối lại, kéo thả khi đang upload, chặn upload trong lúc hỏi đáp, giữ câu hỏi khi API lỗi, trạng thái nút gửi, nhập chữ bằng IME và mở toàn bộ bản chữ từ thư viện. Các kiểm thử hiệu ứng xác nhận dừng/khôi phục vòng vẽ khi đổi tab hoặc tắt chuyển động, tuân theo lựa chọn giảm chuyển động, khôi phục giao diện trước khi vẽ và hoạt động khi trình duyệt chặn lưu trữ. Bố cục và cửa sổ xem nguồn cần kiểm tra thêm trên trình duyệt ở màn hình laptop và điện thoại.
 
 ## Quy trình Git/GitHub đề xuất
 

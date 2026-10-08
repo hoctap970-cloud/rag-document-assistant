@@ -73,6 +73,25 @@ test('disconnect is distinct from missing API key and reconnect restores control
     assert.match(get('#questionInput').placeholder, /Tải tài liệu/);
 });
 
+test('a library document opens its full text without a missing-source warning', async () => {
+    const { context, run, get } = await app();
+    context.fetch = async url => {
+        assert.equal(url, '/api/documents/book/content');
+        return { ok: true, headers: { get: () => 'application/json' }, json: async () => ({
+            chunks: [{chunkIndex: 1, section: 'Giới thiệu', text: 'Nội dung tài liệu.'}]
+        }) };
+    };
+    const item = run('createDocumentItem({id: "book", fileName: "book.pdf", chunkCount: 1, size: 120, uploadedAt: "2026-10-08T12:00:00Z"})');
+    const openButton = item.children[1].children[0];
+    assert.equal(openButton.attributes['aria-label'], 'Đọc book.pdf');
+    await openButton.listeners.click();
+    assert.equal(get('#sourceViewer').open, true);
+    assert.equal(get('#viewerLocation').textContent, 'Toàn bộ nội dung tài liệu');
+    assert.equal(get('#viewerSubtitle').textContent, '1 đoạn trong bản chữ trích xuất');
+    assert.equal(get('#viewerContent').scrollTop, 0);
+    assert.equal(get('#viewerOriginal').href, '/api/documents/book/original');
+});
+
 test('dropping another file during upload keeps the file being processed', async () => {
     const { context, run } = await app();
     context.firstFile = { name: 'first.pdf', size: 200 };

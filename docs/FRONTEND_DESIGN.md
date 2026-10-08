@@ -1,5 +1,7 @@
 # NOVA: document research workspace
 
+This note describes the earlier neon version. The current interface follows [NOVA Studio](STUDIO_REDESIGN.md), with a light mineral palette and a reorganized workspace.
+
 ## Brief and audit
 
 Students need to ask questions about PDF and Word documents. The user requested a distinctive futuristic interface with plenty of neon light, using the three installed frontend skills. Preserve the NOVA wordmark, existing routes, form IDs, upload and chat behavior, citations, and personal workspace settings.

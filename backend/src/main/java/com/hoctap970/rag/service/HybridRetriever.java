@@ -228,7 +228,7 @@ public class HybridRetriever {
                 .replaceAll("\\p{M}+", "").replace('đ', 'd');
     }
 
-    private static List<String> tokens(String text) {
+    static List<String> tokens(String text) {
         var matcher = TOKENS.matcher(normalize(text));
         List<String> result = new ArrayList<>();
         while (matcher.find()) if (!STOP.contains(matcher.group())) result.add(matcher.group());

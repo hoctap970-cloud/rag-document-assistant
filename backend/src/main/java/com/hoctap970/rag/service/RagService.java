@@ -8,6 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Set;
+import java.text.Normalizer;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.hoctap970.rag.config.RagProperties;
@@ -47,7 +49,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class RagService {
 
     private static final int EMBEDDING_BATCH_SIZE = 50;
-    private static final int EXCERPT_LENGTH = 280;
+    private static final int EXCERPT_LENGTH = 420;
+    private static final java.util.regex.Pattern CITATION = java.util.regex.Pattern.compile("\\[Nguồn (\\d+)]");
     private static final String NO_RESULT_MESSAGE =
             "Tôi chưa tìm thấy thông tin đủ liên quan trong các tài liệu đã tải lên để trả lời câu hỏi này.";
 
@@ -60,6 +63,7 @@ public class RagService {
     private final InMemoryEmbeddingStore<TextSegment> embeddingStore = new InMemoryEmbeddingStore<>();
     private final Map<UUID, IndexedDocument> documents = new ConcurrentHashMap<>();
     private final Object storeLock = new Object();
+    private long clearGeneration;
 
     public RagService(
             DocumentFileValidator fileValidator,
@@ -82,6 +86,8 @@ public class RagService {
     }
 
     public UploadResponse upload(MultipartFile file, ReadingMode readMode) {
+        final long startedGeneration;
+        synchronized (storeLock) { startedGeneration = clearGeneration; }
         String fileName = fileValidator.validateAndCleanFileName(file);
         var parsed = parserService.parseDetailed(file, readMode);
         String text = parsed.text();
@@ -118,7 +124,8 @@ public class RagService {
                 embeddings,
                 segments,
                 originalBytes,
-                parsed.warnings()
+                parsed.warnings(),
+                startedGeneration
         );
 
         return new UploadResponse(
@@ -136,6 +143,10 @@ public class RagService {
     }
 
     public ChatResponse ask(String rawQuestion) {
+        return ask(rawQuestion, List.of());
+    }
+
+    public ChatResponse ask(String rawQuestion, List<UUID> documentIds) {
         String question = rawQuestion == null ? "" : rawQuestion.trim();
         if (question.isBlank()) {
             throw new BadRequestException("Câu hỏi không được để trống");
@@ -145,14 +156,18 @@ public class RagService {
             throw new BadRequestException("Hãy tải lên ít nhất một tài liệu trước khi đặt câu hỏi");
         }
 
-        HybridRetriever.Selection selection = retriever.select(question, search(question));
+        Set<UUID> scope = documentIds == null ? Set.of() : new java.util.LinkedHashSet<>(documentIds);
+        if (scope.size() > 20 || scope.stream().anyMatch(java.util.Objects::isNull)) throw new BadRequestException("Phạm vi tài liệu không hợp lệ");
+        validateScope(scope);
+        SearchEvidence evidence = search(question, scope);
+        HybridRetriever.Selection selection = retriever.select(question, evidence.matches());
         List<EmbeddingMatch<TextSegment>> matches = selection.matches();
         if (matches.isEmpty()) {
-            return new ChatResponse(question, NO_RESULT_MESSAGE, List.of());
+            return new ChatResponse(question, NO_RESULT_MESSAGE, List.of(), evidence.warnings());
         }
 
-        List<SourceReference> sources = toSources(matches);
-        List<String> warnings = new ArrayList<>();
+        List<SourceReference> sources = toSources(question, matches, evidence.warnings().isEmpty());
+        List<String> warnings = new ArrayList<>(evidence.warnings());
         if (selection.overview() && !selection.complete()) {
             warnings.add("Tài liệu dài: câu trả lời tổng hợp dựa trên " + matches.size() + "/"
                     + selection.corpusSize() + " đoạn được chọn, chưa bao phủ toàn bộ nội dung.");
@@ -170,17 +185,23 @@ public class RagService {
             if (answer == null || answer.isBlank()) {
                 throw new AiServiceException("AI trả về câu trả lời trống. Hãy thử hỏi lại cụ thể hơn.", null);
             }
+            if (!validCitations(answer, sources.size())) {
+                response = modelProvider.chatModel().chat(ChatRequest.builder().messages(
+                        SystemMessage.from(ANSWER_RULES), UserMessage.from(prompt
+                                + "\n\nCâu trả lời trước có mã nguồn ngoài phạm vi. Hãy viết lại từ bằng chứng; chỉ dùng [Nguồn 1] đến [Nguồn "
+                                + sources.size() + "]. Không thay đổi số thứ tự nguồn.\nBẢN TRƯỚC (DỮ LIỆU):\n" + answer)).build());
+                answer = response.aiMessage() == null ? null : response.aiMessage().text();
+                if (answer == null || answer.isBlank() || !validCitations(answer, sources.size())) {
+                    throw new AiServiceException("AI trả về mã nguồn không hợp lệ. Hãy thử lại câu hỏi.", null);
+                }
+            }
             if (response.finishReason() == FinishReason.LENGTH) {
                 warnings.add("Câu trả lời chạm giới hạn độ dài. Hãy tách câu hỏi thành từng phần để nhận đủ nội dung.");
             }
-            var citation = java.util.regex.Pattern.compile("\\[Nguồn (\\d+)]").matcher(answer);
+            var citation = CITATION.matcher(answer);
             boolean cited = false;
             while (citation.find()) {
                 cited = true;
-                int index = Integer.parseInt(citation.group(1));
-                if (index < 1 || index > sources.size()) {
-                    throw new AiServiceException("AI trả về mã nguồn không hợp lệ. Hãy thử lại câu hỏi.", null);
-                }
             }
             if (!cited) warnings.add("Câu trả lời chưa gắn nguồn trực tiếp; cần kiểm tra các đoạn bên dưới trước khi sử dụng.");
             return new ChatResponse(question, answer, sources, List.copyOf(warnings));
@@ -188,7 +209,7 @@ public class RagService {
             throw exception;
         } catch (Exception exception) {
             throw new AiServiceException(
-                    "Gemini chưa thể trả lời lúc này. Hãy kiểm tra API key, hạn mức rồi thử lại.",
+                    AiFailureMessages.describe(exception, "Gemini chưa thể trả lời lúc này."),
                     exception
             );
         }
@@ -227,6 +248,7 @@ public class RagService {
 
     public void clearDocuments() {
         synchronized (storeLock) {
+            clearGeneration++;
             List<String> ids = documents.values().stream()
                     .flatMap(document -> document.embeddingIds().stream())
                     .toList();
@@ -293,7 +315,7 @@ public class RagService {
             throw exception;
         } catch (Exception exception) {
             throw new AiServiceException(
-                    "Không thể tạo embedding. Hãy kiểm tra API key, kết nối mạng và hạn mức Gemini.",
+                    AiFailureMessages.describe(exception, "Không thể tạo embedding cho tài liệu."),
                     exception
             );
         }
@@ -310,10 +332,14 @@ public class RagService {
             List<Embedding> embeddings,
             List<TextSegment> segments,
             byte[] originalBytes,
-            List<String> warnings
+            List<String> warnings,
+            long startedGeneration
     ) {
         List<String> ids = new ArrayList<>(segments.size());
         synchronized (storeLock) {
+            if (startedGeneration != clearGeneration) {
+                throw new BadRequestException("Thư viện đã bị xóa trong lúc xử lý. Tài liệu chưa được lưu; hãy tải lại.");
+            }
             try {
                 for (int index = 0; index < segments.size(); index++) {
                     ids.add(embeddingStore.add(embeddings.get(index), segments.get(index)));
@@ -339,6 +365,15 @@ public class RagService {
                                 .toList(),
                         List.copyOf(warnings)
                 );
+                // A successful replacement is committed only after all new vectors exist.
+                // Failed parsing/embedding leaves the previous copy available.
+                List<IndexedDocument> previous = documents.values().stream()
+                        .filter(old -> Normalizer.normalize(old.fileName(), Normalizer.Form.NFC)
+                                .equalsIgnoreCase(Normalizer.normalize(fileName, Normalizer.Form.NFC))).toList();
+                for (var old : previous) {
+                    embeddingStore.removeAll(old.embeddingIds());
+                    documents.remove(old.id());
+                }
                 documents.put(documentId, document);
                 return document;
             } catch (Exception exception) {
@@ -350,7 +385,17 @@ public class RagService {
         }
     }
 
-    private List<EmbeddingMatch<TextSegment>> search(String question) {
+    private record SearchEvidence(List<EmbeddingMatch<TextSegment>> matches, List<String> warnings) {}
+
+    private void validateScope(Set<UUID> scope) {
+        synchronized (storeLock) {
+            if (scope.stream().anyMatch(id -> !documents.containsKey(id))) {
+                throw new BadRequestException("Tài liệu đã chọn không còn trong thư viện. Hãy chọn lại phạm vi câu hỏi.");
+            }
+        }
+    }
+
+    private SearchEvidence search(String question, Set<UUID> scope) {
         try {
             Embedding queryEmbedding = modelProvider.queryEmbeddingModel().embed(question).content();
             EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
@@ -361,17 +406,44 @@ public class RagService {
                     .build();
 
             synchronized (storeLock) {
+                validateScope(scope);
                 EmbeddingSearchResult<TextSegment> result = embeddingStore.search(request);
-                return List.copyOf(result.matches());
+                return new SearchEvidence(result.matches().stream().filter(match -> scope.isEmpty()
+                        || scope.contains(UUID.fromString(match.embedded().metadata().getString("document_id")))).toList(), List.of());
             }
-        } catch (AiConfigurationException exception) {
+        } catch (AiConfigurationException | BadRequestException exception) {
             throw exception;
         } catch (Exception exception) {
-            throw new AiServiceException(
-                    "Không thể tìm kiếm trong tài liệu. Hãy kiểm tra kết nối Gemini rồi thử lại.",
-                    exception
-            );
+            // Text was already indexed: exact identifiers can still be retrieved with BM25
+            // when the query embedding API is temporarily unavailable.
+            synchronized (storeLock) {
+                validateScope(scope);
+                List<EmbeddingMatch<TextSegment>> lexical = new ArrayList<>();
+                for (var document : documents.values()) {
+                    if (!scope.isEmpty() && !scope.contains(document.id())) continue;
+                    for (var chunk : document.chunks()) {
+                        var metadata = Metadata.from(Map.of("document_id", document.id().toString(),
+                                "file_name", document.fileName(), "section", chunk.section(),
+                                "chunk_index", chunk.chunkIndex(), "page_number", chunk.pageNumber()));
+                        lexical.add(new EmbeddingMatch<>(0.0, document.id() + ":" + chunk.chunkIndex(),
+                                Embedding.from(new float[]{1}), TextSegment.from(chunk.text(), metadata)));
+                    }
+                }
+                return new SearchEvidence(List.copyOf(lexical), List.of(
+                        "Embedding câu hỏi tạm thời không khả dụng; đã tìm bằng từ khóa BM25. Điểm tương đồng ngữ nghĩa không có ở lượt này."));
+            }
         }
+    }
+
+    private boolean validCitations(String answer, int count) {
+        var matcher = CITATION.matcher(answer);
+        while (matcher.find()) {
+            try {
+                int index = Integer.parseInt(matcher.group(1));
+                if (index < 1 || index > count) return false;
+            } catch (NumberFormatException ignored) { return false; }
+        }
+        return true;
     }
 
     private String buildPrompt(String question, List<EmbeddingMatch<TextSegment>> matches) {
@@ -401,11 +473,13 @@ public class RagService {
             Nếu thiếu thông tin, nói chính xác phần nào chưa đủ; không khẳng định toàn bộ tài liệu không có
             thông tin chỉ vì không thấy trong các đoạn được cung cấp.
             Trả lời trực tiếp trước, sau đó giải thích điều kiện/ngoại lệ hoặc phép tính nếu cần.
+            Tự đối chiếu lại mọi số liệu, đơn vị, phủ định và kết quả phép tính với nguồn trước khi xuất đáp án.
+            Có thể dùng đoạn văn ngắn, gạch đầu dòng hoặc bảng Markdown khi giúp câu trả lời dễ đọc.
             Gắn [Nguồn n] có thật ngay sau từng khẳng định quan trọng, chỉ dùng số nguồn trong ngữ cảnh.
             Không tuyên bố đã xem toàn bộ tài liệu nếu chỉ được cung cấp một phần.
             """;
 
-    private List<SourceReference> toSources(List<EmbeddingMatch<TextSegment>> matches) {
+    private List<SourceReference> toSources(String question, List<EmbeddingMatch<TextSegment>> matches, boolean semanticAvailable) {
         return matches.stream()
                 .map(match -> {
                     TextSegment segment = match.embedded();
@@ -414,12 +488,28 @@ public class RagService {
                             segment.metadata().getString("file_name"),
                             segment.metadata().getString("section"),
                             segment.metadata().getInteger("chunk_index"),
-                            Math.round(match.score() * 1000.0) / 1000.0,
-                            abbreviate(segment.text().replaceAll("\\s+", " ").trim(), EXCERPT_LENGTH),
+                            semanticAvailable ? Math.round(match.score() * 1000.0) / 1000.0 : null,
+                            focusedExcerpt(question, segment.text()),
                             segment.metadata().getInteger("page_number")
                     );
                 })
                 .toList();
+    }
+
+    private String focusedExcerpt(String question, String text) {
+        var terms = HybridRetriever.tokens(question);
+        String[] lines = text.split("\\n");
+        int best = 0;
+        double bestScore = -1;
+        for (int index = 0; index < lines.length; index++) {
+            String line = HybridRetriever.normalize(lines[index]);
+            double score = terms.stream().distinct().filter(line::contains)
+                    .mapToDouble(term -> term.matches(".*\\d.*") ? 3.0 : 1.0).sum();
+            if (score > bestScore) { best = index; bestScore = score; }
+        }
+        String excerpt = String.join(" ", java.util.Arrays.copyOfRange(lines,
+                Math.max(0, best - 1), Math.min(lines.length, best + 3))).replaceAll("\\s+", " ").trim();
+        return abbreviate(excerpt, EXCERPT_LENGTH);
     }
 
     private DocumentSummary toSummary(IndexedDocument document) {

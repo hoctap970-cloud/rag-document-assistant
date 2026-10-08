@@ -17,11 +17,14 @@ public class DocumentFileValidator {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("Tệp tải lên không được để trống");
         }
+        if (file.getSize() > 10L * 1024 * 1024) {
+            throw new BadRequestException("Tệp vượt quá giới hạn 10 MB");
+        }
 
         String originalName = file.getOriginalFilename();
-        String cleanName = originalName == null ? "" : StringUtils.cleanPath(originalName).trim();
+        String cleanName = originalName == null ? "" : StringUtils.getFilename(StringUtils.cleanPath(originalName)).trim();
 
-        if (cleanName.isBlank() || cleanName.contains("..")) {
+        if (cleanName.isBlank() || cleanName.length() > 255 || cleanName.codePoints().anyMatch(Character::isISOControl)) {
             throw new BadRequestException("Tên tệp không hợp lệ");
         }
 

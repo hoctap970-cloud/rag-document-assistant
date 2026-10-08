@@ -19,7 +19,7 @@ Mục tiêu là tăng khả năng lấy đúng bằng chứng trong tài liệu 
 | AI nghe theo câu “bỏ qua hướng dẫn” cài trong file | Quy tắc ở SystemMessage; tài liệu nằm trong phần dữ liệu. Đây là biện pháp giảm rủi ro, không phải bảo đảm miễn nhiễm |
 | Dẫn nguồn giả hoặc trả lời bị cắt | Kiểm tra chỉ số `[Nguồn n]`, báo lỗi mã nguồn ngoài phạm vi, cảnh báo không trích nguồn hoặc chạm giới hạn đầu ra |
 
-Score trên thẻ nguồn vẫn là độ tương đồng vector ban đầu. Đoạn được BM25 cứu có thể có score thấp mà chứa chính xác mã cần tìm. Không dùng score làm phần trăm độ tin cậy của đáp án.
+Score trên thẻ nguồn vẫn là độ tương đồng vector ban đầu. Đoạn được BM25 cứu có thể có score thấp mà chứa chính xác mã cần tìm. Khi embedding câu hỏi lỗi, hệ thống tìm BM25 và trả score=null, giao diện ghi “Tìm theo từ khóa”. Không dùng score làm phần trăm độ tin cậy của đáp án.
 
 ## 2. Luồng thực tế
 
@@ -47,7 +47,7 @@ Sau khi chọn PDF, có thể đánh dấu **Đọc kỹ từng trang PDF** rồ
 - **Có đánh dấu:** gửi từng trang cho Gemini Vision, kể cả trang có nhiều chữ. Dùng khi bảng nhiều cột, sơ đồ vector hoặc nội dung hình bị bỏ sót trong bản trích xuất tự động. Vẫn giữ lớp chữ gốc và số trang.
 - Mỗi trang thêm một lượt Vision, nên mất thời gian/quota hơn. Mặc định tối đa 40 trang ở chế độ này. PDF vượt giới hạn được từ chối trước khi gọi Gemini; chia file rồi tải từng phần nếu cần.
 - Lựa chọn được đặt lại khi chọn tệp mới và chỉ bật cho PDF. Nếu backend tắt `RAG_VISION_ENABLED`, yêu cầu đọc kỹ báo lỗi rõ ràng.
-- Đây là cách tăng khả năng đọc đủ nội dung, không bảo đảm OCR đúng mọi chữ/số. Sau khi đổi chế độ cần upload lại; nên xóa bản cũ cùng tên để tránh dùng lẫn hai lần trích xuất.
+- Đây là cách tăng khả năng đọc đủ nội dung, không bảo đảm OCR đúng mọi chữ/số. Sau khi đổi chế độ cần upload lại; bản cùng tên sẽ được thay sau khi bản mới đọc/index thành công. Nếu lỗi, bản cũ vẫn còn.
 
 API giữ tương thích với request cũ: bỏ qua `readMode` thì dùng `AUTO`; có thể gửi multipart `readMode=DEEP` cùng `file` để đọc kỹ. Chế độ không hợp lệ trả 400.
 

@@ -35,14 +35,14 @@ public class GeminiModelProvider {
         if (chatModel == null) {
             synchronized (this) {
                 if (chatModel == null) {
-                    chatModel = GoogleGenAiChatModel.builder()
+                    chatModel = new QuotaAwareChatModel(GoogleGenAiChatModel.builder()
                             .apiKey(properties.apiKey())
                             .modelName(properties.chatModel())
                             .temperature(0.0)
                             .maxOutputTokens(properties.maxOutputTokens())
                             .timeout(Duration.ofSeconds(properties.timeoutSeconds()))
-                            .maxRetries(2)
-                            .build();
+                            .maxRetries(0)
+                            .build());
                 }
             }
         }

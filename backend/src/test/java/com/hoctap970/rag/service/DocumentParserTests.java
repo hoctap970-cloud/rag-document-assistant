@@ -94,6 +94,46 @@ class DocumentParserTests {
         return new DocumentParserService(vision, new ParsingProperties(enabled, 250, visionLimit));
     }
 
+    @Test void readsRealLegacyBinaryDocUsingTikaWithoutVision() throws Exception {
+        byte[] bytes;
+        try (var input = getClass().getResourceAsStream("/fixtures/simple.doc")) { bytes = input.readAllBytes(); }
+        var parsed = parser(true, 40).parseDetailed(new MockMultipartFile("file", "simple.doc", "application/msword", bytes));
+        assertThat(parsed.text()).contains("This is a simple file");
+        assertThat(parsed.warnings()).anyMatch(w -> w.contains("lớp chữ"));
+        verifyNoInteractions(vision);
+    }
+
+    @Test void blankPdfDoesNotUseVisionAndPasswordProtectedPdfFailsClearly() throws Exception {
+        try (var document = new PDDocument(); var out = new ByteArrayOutputStream()) {
+            document.addPage(new PDPage()); document.save(out);
+            assertThatThrownBy(() -> parser(true, 40).parseDetailed(new MockMultipartFile("file", "blank.pdf", "", out.toByteArray())))
+                    .isInstanceOf(DocumentProcessingException.class).hasMessageContaining("Không tìm thấy");
+            var protection = new org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy("owner", "secret", new org.apache.pdfbox.pdmodel.encryption.AccessPermission());
+            document.protect(protection); out.reset(); document.save(out);
+            assertThatThrownBy(() -> parser(true, 40).parseDetailed(new MockMultipartFile("file", "locked.pdf", "", out.toByteArray())))
+                    .isInstanceOf(DocumentProcessingException.class).hasMessageContaining("mật khẩu");
+        }
+        verifyNoInteractions(vision);
+    }
+
+    @Test void automaticPdfCanKeepNativeTextAfterVisionFailureButDeepAndScansRemainStrict() throws Exception {
+        byte[] bytes;
+        try (var document = org.apache.pdfbox.Loader.loadPDF(pdf(1).getBytes()); var out = new ByteArrayOutputStream()) {
+            var image = new java.awt.image.BufferedImage(600, 300, java.awt.image.BufferedImage.TYPE_INT_RGB);
+            try (var content = new PDPageContentStream(document, document.getPage(0), PDPageContentStream.AppendMode.APPEND, true)) {
+                content.drawImage(org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(document, image), 40, 400, 300, 150);
+            }
+            document.save(out); bytes = out.toByteArray();
+        }
+        when(vision.readPdfPage(any())).thenThrow(new DocumentProcessingException("Quota AI đã hết; thử lại sau.", null));
+        var file = new MockMultipartFile("file", "visual.pdf", "", bytes);
+        var parsed = parser(true, 40).parseDetailed(file);
+        assertThat(parsed.text()).contains("Native page");
+        assertThat(parsed.warnings()).anyMatch(w -> w.contains("giữ lớp chữ"));
+        assertThatThrownBy(() -> parser(true, 40).parseDetailed(file, ReadingMode.DEEP)).isInstanceOf(DocumentProcessingException.class);
+        assertThatThrownBy(() -> parser(true, 40).parseDetailed(pdf(2))).isInstanceOf(DocumentProcessingException.class);
+    }
+
     @Test
     void visionReceivesReadablePageEvenWhenPdfResourcesAreInherited() throws Exception {
         byte[] bytes;
@@ -136,7 +176,13 @@ class DocumentParserTests {
                 content.showText("Native page: all employees receive training and information about safety procedures.");
                 content.endText();
             }
-            for (int i = 1; i < pages; i++) pdf.addPage(new PDPage());
+            for (int i = 1; i < pages; i++) {
+                var visualPage = new PDPage();
+                pdf.addPage(visualPage);
+                try (var content = new PDPageContentStream(pdf, visualPage)) {
+                    content.addRect(40, 600, 160, 80); content.stroke();
+                }
+            }
             pdf.save(out);
             return new MockMultipartFile("file", "mixed.pdf", "application/pdf", out.toByteArray());
         }

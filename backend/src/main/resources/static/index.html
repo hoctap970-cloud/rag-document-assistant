@@ -9,7 +9,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="preload" href="/fonts/Manrope-Regular.ttf" as="font" type="font/ttf" crossorigin>
     <link rel="preload" href="/fonts/Manrope-ExtraBold.ttf" as="font" type="font/ttf" crossorigin>
-    <link rel="stylesheet" href="/css/nova.css?v=prism-1">
+    <link rel="stylesheet" href="/css/nova.css?v=demo-1">
     <script src="/js/theme.js?v=prism-1"></script>
 </head>
 <body>
@@ -34,7 +34,8 @@
         <section class="chat-panel" aria-labelledby="chatHeading">
             <div class="chat-header">
                 <div class="chat-title"><span class="chat-heading-icon ui-icon icon-sparkles" aria-hidden="true"></span><div><h2 id="chatHeading" tabindex="-1">Không gian hỏi đáp</h2><p>Đọc sâu hơn. Hiểu rõ hơn.</p></div></div>
-                <div class="connection-controls"><div id="serviceStatus" class="status-pill" aria-live="polite"><span class="status-dot" aria-hidden="true"></span><span>Đang kết nối</span></div><button id="retryConnection" class="retry-connection hidden" type="button">Kết nối lại</button></div>
+                <div class="connection-controls"><div id="serviceStatus" class="status-pill" aria-live="polite"><span class="status-dot" aria-hidden="true"></span><span>Đang kết nối</span></div><button id="checkAiButton" class="retry-connection" type="button" title="Thử chat và embedding thật; sử dụng một ít quota API">Kiểm tra AI</button><button id="retryConnection" class="retry-connection hidden" type="button">Kết nối lại</button></div>
+                <div class="chat-tools"><label for="documentScope">Tài liệu để hỏi</label><select id="documentScope" aria-label="Chọn tài liệu để hỏi"><option value="">Toàn bộ thư viện</option></select><button id="newChatButton" class="button button-ghost" type="button">Hội thoại mới</button></div>
             </div>
             <div id="messageList" class="message-list" aria-live="polite">
                 <div id="welcome" class="welcome-card">
@@ -65,7 +66,7 @@
                         <input id="fileInput" name="file" type="file" accept=".pdf,.doc,.docx" hidden>
                     </label>
                     <label class="read-mode-option" for="deepRead"><input id="deepRead" type="checkbox" disabled aria-describedby="deepReadHint"><span><strong>Đọc kỹ từng trang PDF</strong><small id="deepReadHint">Cho bảng, sơ đồ hoặc bản scan khó. Dùng thêm thời gian và quota AI.</small></span></label>
-                    <button id="uploadButton" class="button button-primary button-full" type="submit"><span class="button-label">Phân tích tài liệu</span><span class="ui-icon icon-arrow" aria-hidden="true"></span><span class="spinner hidden" aria-hidden="true"></span></button>
+                    <button id="uploadButton" class="button button-primary button-full" type="submit"><span class="button-label">Phân tích tài liệu</span><span class="ui-icon icon-arrow" aria-hidden="true"></span><span class="spinner hidden" aria-hidden="true"></span></button><p id="uploadFeedback" class="upload-feedback hidden" role="status"></p>
                 </form>
             </section>
             <details id="library" class="document-panel" open>
@@ -87,7 +88,9 @@
     <form id="identityForm"><div class="identity-dialog-heading"><span class="dialog-label">Không gian của bạn</span><button id="closeIdentity" class="viewer-close" type="button" aria-label="Đóng tùy chỉnh"><span class="ui-icon icon-close" aria-hidden="true"></span></button></div><h2 id="identityTitle">Cá nhân hóa</h2><p>Đặt tên và một lời nhắn cho không gian làm việc của bạn.</p><label for="ownerInput">Tên hoặc biệt danh</label><input id="ownerInput" name="owner" maxlength="36" placeholder="Bạn muốn được gọi là gì?" autocomplete="nickname"><label for="signatureInput">Một câu dành riêng cho bạn</label><input id="signatureInput" name="signature" maxlength="80" placeholder="Một góc riêng. Một cách nghĩ riêng."><button class="button button-primary button-full" type="submit">Lưu thay đổi<span class="ui-icon icon-check" aria-hidden="true"></span></button><small>Chỉ lưu trên trình duyệt này. Để trống để dùng lại mặc định.</small></form>
 </dialog>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="/js/app.js?v=prism-1" defer></script>
+<dialog id="aiCheckDialog" class="identity-dialog ai-dialog" aria-labelledby="aiCheckTitle"><div class="identity-dialog-heading"><span class="dialog-label">Chuẩn bị demo</span><button id="closeAiCheck" class="viewer-close" type="button" aria-label="Đóng kiểm tra AI"><span class="ui-icon icon-close" aria-hidden="true"></span></button></div><h2 id="aiCheckTitle">Kiểm tra kết nối AI</h2><p id="aiCheckStatus" role="status">Đang kiểm tra…</p><p id="aiCheckModels" class="ai-models"></p><small>Chỉ thử khi bấm nút, dùng một ít quota. Kết quả phản ánh thời điểm kiểm tra; vẫn cần đối chiếu đáp án với tài liệu.</small></dialog>
+<script src="/js/answer.js?v=demo-1" defer></script>
+<script src="/js/app.js?v=demo-1" defer></script>
 <script src="/js/visuals.js?v=prism-1" defer></script>
 </body>
 </html>

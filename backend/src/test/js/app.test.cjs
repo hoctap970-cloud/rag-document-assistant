@@ -6,6 +6,46 @@ const vm = require('node:vm');
 
 const source = readFileSync(process.env.APP_SCRIPT || path.join(__dirname, '../../main/resources/static/js/app.js'), 'utf8');
 
+test('selected document scope is sent to chat and a new conversation retains the library', async () => {
+    const { context, run, get } = await app();
+    run('state.documents = [{id: "chosen", chunkCount: 1}]; updateControls()');
+    get('#documentScope').value = 'chosen'; get('#questionInput').value = 'Phí là bao nhiêu?';
+    context.fetch = async (url, options) => {
+        assert.equal(url, '/api/chat');
+        assert.deepEqual(JSON.parse(options.body).documentIds, ['chosen']);
+        return {ok: true, headers: {get: () => 'application/json'}, json: async () => ({answer: '215 triệu', sources: []})};
+    };
+    await get('#chatForm').listeners.submit({preventDefault() {}});
+    assert.equal(get('#newChatButton').disabled, false);
+    get('#newChatButton').listeners.click();
+    assert.equal(run('state.messageCount'), 0); assert.equal(run('state.documents.length'), 1);
+    assert.equal(get('#documentScope').value, 'chosen');
+    assert.equal(get('#messageList').children[0], get('#welcome'));
+});
+test('AI readiness calls only the explicit probe and reports failure without enabling duplicate probes', async () => {
+    const { context, run, get, calls } = await app();
+    assert.equal(calls.some(call => call.url === '/api/health/ai'), false);
+    let release;
+    context.fetch = async (url, options) => {
+        assert.equal(url, '/api/health/ai'); assert.equal(options.method, 'POST');
+        await new Promise(resolve => { release = resolve; });
+        return {ok: true, headers: {get: () => 'application/json'}, json: async () => ({ready: false, message: 'Quota; chờ 60 giây', chatModel: 'chat', embeddingModel: 'embedding', chatStatus: 'ERROR', embeddingStatus: 'OK'})};
+    };
+    const pending = get('#checkAiButton').listeners.click();
+    assert.equal(get('#checkAiButton').disabled, true); assert.equal(get('#aiCheckDialog').open, true);
+    release(); await pending;
+    assert.equal(run('state.aiReady'), false); assert.match(get('#aiCheckStatus').textContent, /60 giây/);
+    assert.equal(get('#serviceStatus').lastElementChild.textContent, 'AI chưa sẵn sàng');
+    assert.equal(get('#checkAiButton').disabled, false);
+});
+test('invalid files leave a persistent recovery message and BM25 has no fake semantic percentage', async () => {
+    const { context, run, get } = await app();
+    context.empty = {name: 'empty.pdf', size: 0}; run('chooseFile(empty)');
+    assert.match(get('#uploadFeedback').textContent, /Tệp trống/); assert.equal(run('state.selectedFile'), null);
+    const card = run('createSourceCard({fileName:"book.docx",chunkIndex:1,section:"Chính sách",score:null,excerpt:"215 triệu"},0)');
+    assert.equal(card.children[0].children[1].textContent, 'Tìm theo từ khóa');
+});
+
 // Minimal DOM for event/state regressions; layout is checked in a real browser.
 function element() {
     const classes = new Set();

@@ -20,6 +20,11 @@
 - Bấm vào nguồn để mở bản chữ của tài liệu, tự cuộn đến đoạn liên quan và đánh dấu nổi bật; có thể mở/tải tệp gốc để đối chiếu.
 - Xem danh sách tài liệu, số đoạn và xóa dữ liệu khỏi RAM.
 - Trả lỗi API thống nhất, không làm lộ API key hoặc chi tiết nội bộ.
+- Chọn một tài liệu hoặc toàn thư viện để hỏi; tải lại cùng tên thay bản cũ sau khi đọc thành công.
+- Giữ nội dung hộp văn bản, content control, danh sách đánh số, ô gộp dọc và vị trí ảnh DOCX khi xác định được.
+- Hiển thị bảng/gạch đầu dòng, bấm `[Nguồn n]` để đối chiếu và sao chép đáp án.
+- Nút **Kiểm tra AI** thử chat và embedding thật khi bấm; kiểm tra health thông thường không dùng quota.
+- Nếu embedding câu hỏi lỗi tạm thời, tìm bằng BM25 và báo rõ không có điểm ngữ nghĩa. Quota ngày không được tự gọi lặp; quota phút thử lại một lần theo thời gian chờ ngắn của nhà cung cấp.
 - Giao diện responsive, chạy chung với backend nên chỉ cần khởi động một ứng dụng.
 
 ## Kiến trúc
@@ -76,6 +81,7 @@ Frontend không có thư mục dự án riêng: Spring Boot phục vụ trực t
 | `static/index.html` | Chữ, các khu vực trên trang, biểu mẫu và cửa sổ xem nguồn |
 | `static/css/nova.css` | Giao diện NOVA, màu sắc, bố cục và hiển thị trên điện thoại |
 | `static/js/app.js` | Các thao tác upload, hỏi đáp, trạng thái, danh sách tài liệu và mở nguồn |
+| `static/js/answer.js` | Hiển thị Markdown giới hạn bằng DOM text nodes; không thực thi HTML của AI/tài liệu |
 | `static/js/theme.js` | Khôi phục giao diện sáng/tối trước khi trang vẽ lần đầu |
 | `static/js/visuals.js` | Điều hướng, giao diện sáng/tối, chuyển động, ánh sáng và phản hồi tương tác |
 
@@ -166,14 +172,19 @@ Biến môi trường trên chỉ có hiệu lực trong cửa sổ PowerShell h
 
 | Method | Endpoint | Chức năng |
 |---|---|---|
-| `GET` | `/api/health` | Trạng thái backend, Gemini, số tài liệu và số đoạn |
+| `GET` | `/api/health` | Backend, key đã cấu hình hay chưa, số tài liệu và số đoạn; không chứng minh AI phản hồi |
+| `POST` | `/api/health/ai` | Thử chat và embedding thật, dùng quota; trả từng trạng thái, model và thời điểm kiểm tra |
 | `POST` | `/api/documents/upload` | Nhận multipart `file`, tùy chọn `readMode=AUTO` hoặc `DEEP` (PDF), đọc và tạo vector |
 | `GET` | `/api/documents` | Danh sách tài liệu trong RAM |
 | `GET` | `/api/documents/{id}/content` | Bản chữ và các đoạn của tài liệu để đối chiếu nguồn |
 | `GET` | `/api/documents/{id}/original` | Mở PDF gốc hoặc tải Word gốc từ RAM |
 | `DELETE` | `/api/documents/{id}` | Xóa một tài liệu và các vector của nó |
 | `DELETE` | `/api/documents` | Xóa toàn bộ tài liệu và vector |
-| `POST` | `/api/chat` | Hỏi đáp với JSON `{ "question": "..." }` |
+| `POST` | `/api/chat` | JSON `{ "question": "...", "documentIds": ["uuid"] }`; bỏ `documentIds` hoặc mảng rỗng để hỏi toàn thư viện |
+
+`sources[].score` là số tương đồng ngữ nghĩa khi có; bằng `null` khi embedding câu hỏi lỗi và dùng tìm kiếm từ khóa. Không phải độ chính xác đáp án. Mã tài liệu đã xóa trong `documentIds` trả 400, không tự hỏi sang tệp khác.
+
+Xem [báo cáo kiểm tra trước demo](docs/DEMO_READINESS.md) để biết các trường hợp đã thử thật, giới hạn còn lại và cách xử lý quota.
 
 Ví dụ kiểm tra health:
 

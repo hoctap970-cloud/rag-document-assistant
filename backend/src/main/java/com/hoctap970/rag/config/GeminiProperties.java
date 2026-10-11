@@ -14,6 +14,8 @@ public record GeminiProperties(
 ) {
     public GeminiProperties {
         apiKey = apiKey == null ? "" : apiKey.strip();
+        chatModel = chatModel == null ? null : chatModel.strip();
+        embeddingModel = embeddingModel == null ? null : embeddingModel.strip();
         if (chatModel == null || chatModel.isBlank() || embeddingModel == null || embeddingModel.isBlank()
                 || embeddingDimensions < 1 || maxOutputTokens < 1 || timeoutSeconds < 1) {
             throw new IllegalArgumentException("Cấu hình model, số chiều hoặc thời gian chờ Gemini không hợp lệ");

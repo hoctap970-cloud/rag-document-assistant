@@ -94,6 +94,39 @@ class DocumentParserTests {
         return new DocumentParserService(vision, new ParsingProperties(enabled, 250, visionLimit));
     }
 
+    @Test void parserUsesTheSameCleanedFileNameAsUploadValidation() throws Exception {
+        var original = pdf(1);
+        var file = new MockMultipartFile("file", "C:\\fakepath\\report.PDF ", "application/pdf", original.getBytes());
+        assertThat(parser(true, 40).parseDetailed(file).text()).contains("Native page");
+        verifyNoInteractions(vision);
+    }
+
+    @Test void shortNativePdfTextSurvivesAnAutomaticVisionOutage() throws Exception {
+        try (var pdf = new PDDocument(); var out = new ByteArrayOutputStream()) {
+            var page = new PDPage(); pdf.addPage(page);
+            try (var content = new PDPageContentStream(pdf, page)) {
+                content.beginText();
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                content.newLineAtOffset(40, 750); content.showText("Fee: 215 USD."); content.endText();
+            }
+            pdf.save(out);
+            when(vision.readPdfPage(any())).thenThrow(new DocumentProcessingException("Quota AI đã hết.", null));
+            var result = parser(true, 40).parseDetailed(new MockMultipartFile("file", "short.pdf", "", out.toByteArray()));
+            assertThat(result.text()).contains("Fee: 215 USD.");
+            assertThat(result.warnings()).anyMatch(w -> w.contains("giữ lớp chữ"));
+        }
+    }
+
+    @Test void tooManyPdfPagesAreRejectedBeforeVisionEvenWhenTheUploadIsSmall() throws Exception {
+        try (var pdf = new PDDocument(); var out = new ByteArrayOutputStream()) {
+            for (int page = 0; page < 251; page++) pdf.addPage(new PDPage());
+            pdf.save(out);
+            assertThatThrownBy(() -> parser(true, 40).parseDetailed(new MockMultipartFile("file", "large.pdf", "", out.toByteArray())))
+                    .isInstanceOf(DocumentProcessingException.class).hasMessageContaining("250 trang");
+        }
+        verifyNoInteractions(vision);
+    }
+
     @Test void readsRealLegacyBinaryDocUsingTikaWithoutVision() throws Exception {
         byte[] bytes;
         try (var input = getClass().getResourceAsStream("/fixtures/simple.doc")) { bytes = input.readAllBytes(); }

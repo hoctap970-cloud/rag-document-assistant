@@ -50,7 +50,9 @@ public class RagService {
 
     private static final int EMBEDDING_BATCH_SIZE = 50;
     private static final int EXCERPT_LENGTH = 420;
-    private static final java.util.regex.Pattern CITATION = java.util.regex.Pattern.compile("\\[Nguồn (\\d+)]");
+    private static final java.util.regex.Pattern CITATION = java.util.regex.Pattern.compile(
+            "\\[\\s*ngu[oồ]n\\s*([^\\]\\n]*)\\]", java.util.regex.Pattern.CASE_INSENSITIVE
+                    | java.util.regex.Pattern.UNICODE_CASE | java.util.regex.Pattern.UNICODE_CHARACTER_CLASS);
     private static final String NO_RESULT_MESSAGE =
             "Tôi chưa tìm thấy thông tin đủ liên quan trong các tài liệu đã tải lên để trả lời câu hỏi này.";
 
@@ -64,6 +66,7 @@ public class RagService {
     private final Map<UUID, IndexedDocument> documents = new ConcurrentHashMap<>();
     private final Object storeLock = new Object();
     private long clearGeneration;
+    private Integer embeddingDimensions;
 
     public RagService(
             DocumentFileValidator fileValidator,
@@ -89,6 +92,12 @@ public class RagService {
         final long startedGeneration;
         synchronized (storeLock) { startedGeneration = clearGeneration; }
         String fileName = fileValidator.validateAndCleanFileName(file);
+        final List<UUID> previousVersions;
+        synchronized (storeLock) {
+            previousVersions = sameNameDocuments(fileName).stream().map(IndexedDocument::id).sorted().toList();
+            validateStorageCapacity(fileName, file.getSize(), 0);
+        }
+        byte[] originalBytes = readOriginalBytes(file);
         var parsed = parserService.parseDetailed(file, readMode);
         String text = parsed.text();
         List<SectionContent> sections = sectionExtractor.extract(text);
@@ -99,15 +108,9 @@ public class RagService {
 
         UUID documentId = UUID.randomUUID();
         List<TextSegment> segments = createSegments(documentId, fileName, sections);
-        if (segments.size() > properties.maxChunksPerDocument()) {
-            throw new BadRequestException(
-                    "Tài liệu tạo ra quá nhiều đoạn (%d). Giới hạn hiện tại là %d đoạn."
-                            .formatted(segments.size(), properties.maxChunksPerDocument())
-            );
-        }
+        synchronized (storeLock) { validateStorageCapacity(fileName, file.getSize(), segments.size()); }
 
         List<Embedding> embeddings = embedDocument(segments);
-        byte[] originalBytes = readOriginalBytes(file);
         Instant uploadedAt = Instant.now();
         String contentType = file.getContentType() == null
                 ? "application/octet-stream"
@@ -125,7 +128,8 @@ public class RagService {
                 segments,
                 originalBytes,
                 parsed.warnings(),
-                startedGeneration
+                startedGeneration,
+                previousVersions
         );
 
         return new UploadResponse(
@@ -162,17 +166,22 @@ public class RagService {
         SearchEvidence evidence = search(question, scope);
         HybridRetriever.Selection selection = retriever.select(question, evidence.matches());
         List<EmbeddingMatch<TextSegment>> matches = selection.matches();
+        List<String> warnings = new ArrayList<>(evidence.warnings());
+        warnings.addAll(selection.warnings());
         if (matches.isEmpty()) {
-            return new ChatResponse(question, NO_RESULT_MESSAGE, List.of(), evidence.warnings());
+            validateEvidenceAvailability(evidence.documents().keySet());
+            return new ChatResponse(question, NO_RESULT_MESSAGE, List.of(), List.copyOf(warnings));
         }
 
+        Set<UUID> usedDocumentIds = matches.stream().map(match -> UUID.fromString(
+                match.embedded().metadata().getString("document_id"))).collect(java.util.stream.Collectors.toSet());
+        validateEvidenceAvailability(usedDocumentIds);
         List<SourceReference> sources = toSources(question, matches, evidence.warnings().isEmpty());
-        List<String> warnings = new ArrayList<>(evidence.warnings());
         if (selection.overview() && !selection.complete()) {
             warnings.add("Tài liệu dài: câu trả lời tổng hợp dựa trên " + matches.size() + "/"
                     + selection.corpusSize() + " đoạn được chọn, chưa bao phủ toàn bộ nội dung.");
         }
-        matches.stream().map(match -> documents.get(UUID.fromString(match.embedded().metadata().getString("document_id"))))
+        matches.stream().map(match -> evidence.documents().get(UUID.fromString(match.embedded().metadata().getString("document_id"))))
                 .filter(java.util.Objects::nonNull).flatMap(document -> document.warnings().stream()).distinct()
                 .forEach(warnings::add);
         String prompt = buildPrompt(question, matches);
@@ -181,20 +190,25 @@ public class RagService {
             var response = modelProvider.chatModel().chat(ChatRequest.builder().messages(
                     SystemMessage.from(ANSWER_RULES),
                     UserMessage.from(prompt)).build());
+            validateAnswerFinishReason(response.finishReason());
             String answer = response.aiMessage() == null ? null : response.aiMessage().text();
             if (answer == null || answer.isBlank()) {
                 throw new AiServiceException("AI trả về câu trả lời trống. Hãy thử hỏi lại cụ thể hơn.", null);
             }
+            answer = normalizeCitations(answer);
             if (!validCitations(answer, sources.size())) {
                 response = modelProvider.chatModel().chat(ChatRequest.builder().messages(
                         SystemMessage.from(ANSWER_RULES), UserMessage.from(prompt
                                 + "\n\nCâu trả lời trước có mã nguồn ngoài phạm vi. Hãy viết lại từ bằng chứng; chỉ dùng [Nguồn 1] đến [Nguồn "
                                 + sources.size() + "]. Không thay đổi số thứ tự nguồn.\nBẢN TRƯỚC (DỮ LIỆU):\n" + answer)).build());
+                validateAnswerFinishReason(response.finishReason());
                 answer = response.aiMessage() == null ? null : response.aiMessage().text();
+                if (answer != null) answer = normalizeCitations(answer);
                 if (answer == null || answer.isBlank() || !validCitations(answer, sources.size())) {
                     throw new AiServiceException("AI trả về mã nguồn không hợp lệ. Hãy thử lại câu hỏi.", null);
                 }
             }
+            validateEvidenceAvailability(usedDocumentIds);
             if (response.finishReason() == FinishReason.LENGTH) {
                 warnings.add("Câu trả lời chạm giới hạn độ dài. Hãy tách câu hỏi thành từng phần để nhận đủ nội dung.");
             }
@@ -205,7 +219,7 @@ public class RagService {
             }
             if (!cited) warnings.add("Câu trả lời chưa gắn nguồn trực tiếp; cần kiểm tra các đoạn bên dưới trước khi sử dụng.");
             return new ChatResponse(question, answer, sources, List.copyOf(warnings));
-        } catch (AiConfigurationException | AiServiceException exception) {
+        } catch (AiConfigurationException | AiServiceException | BadRequestException exception) {
             throw exception;
         } catch (Exception exception) {
             throw new AiServiceException(
@@ -243,6 +257,7 @@ public class RagService {
             }
             embeddingStore.removeAll(document.embeddingIds());
             documents.remove(documentId);
+            if (documents.isEmpty()) embeddingDimensions = null;
         }
     }
 
@@ -256,6 +271,7 @@ public class RagService {
                 embeddingStore.removeAll(ids);
             }
             documents.clear();
+            embeddingDimensions = null;
         }
     }
 
@@ -294,6 +310,10 @@ public class RagService {
                 String contextualText = chunk.text().startsWith(section.title()) ? chunk.text()
                         : section.title() + "\n" + chunk.text();
                 segments.add(TextSegment.from(contextualText, Metadata.from(attributes)));
+                if (segments.size() > properties.maxChunksPerDocument()) {
+                    throw new BadRequestException("Tài liệu tạo ra quá nhiều đoạn. Giới hạn hiện tại là "
+                            + properties.maxChunksPerDocument() + " đoạn.");
+                }
             }
         }
         return segments;
@@ -305,7 +325,14 @@ public class RagService {
             List<Embedding> embeddings = new ArrayList<>(segments.size());
             for (int start = 0; start < segments.size(); start += EMBEDDING_BATCH_SIZE) {
                 int end = Math.min(start + EMBEDDING_BATCH_SIZE, segments.size());
-                embeddings.addAll(model.embedAll(segments.subList(start, end)).content());
+                var batch = model.embedAll(segments.subList(start, end)).content();
+                if (batch == null || batch.size() != end - start) {
+                    throw new IllegalStateException("Embedding count does not match document chunks");
+                }
+                for (Embedding embedding : batch) {
+                    validateEmbedding(embedding, embeddings.isEmpty() ? null : embeddings.getFirst().vector().length);
+                    embeddings.add(embedding);
+                }
             }
             if (embeddings.size() != segments.size()) {
                 throw new IllegalStateException("Embedding count does not match document chunks");
@@ -333,12 +360,20 @@ public class RagService {
             List<TextSegment> segments,
             byte[] originalBytes,
             List<String> warnings,
-            long startedGeneration
+            long startedGeneration,
+            List<UUID> previousVersions
     ) {
         List<String> ids = new ArrayList<>(segments.size());
         synchronized (storeLock) {
             if (startedGeneration != clearGeneration) {
                 throw new BadRequestException("Thư viện đã bị xóa trong lúc xử lý. Tài liệu chưa được lưu; hãy tải lại.");
+            }
+            if (!sameNameDocuments(fileName).stream().map(IndexedDocument::id).sorted().toList().equals(previousVersions)) {
+                throw new BadRequestException("Tệp cùng tên đã được thay hoặc xóa trong lúc xử lý. Tài liệu chưa được lưu; hãy tải lại.");
+            }
+            validateStorageCapacity(fileName, size, segments.size());
+            if (embeddingDimensions != null && embeddings.getFirst().vector().length != embeddingDimensions) {
+                throw new AiServiceException("Số chiều embedding đã thay đổi. Hãy dùng cùng mô hình hoặc xóa thư viện trước khi tải lại.", null);
             }
             try {
                 for (int index = 0; index < segments.size(); index++) {
@@ -375,6 +410,7 @@ public class RagService {
                     documents.remove(old.id());
                 }
                 documents.put(documentId, document);
+                embeddingDimensions = embeddings.getFirst().vector().length;
                 return document;
             } catch (Exception exception) {
                 if (!ids.isEmpty()) {
@@ -385,7 +421,47 @@ public class RagService {
         }
     }
 
-    private record SearchEvidence(List<EmbeddingMatch<TextSegment>> matches, List<String> warnings) {}
+    private record SearchEvidence(List<EmbeddingMatch<TextSegment>> matches, List<String> warnings,
+                                  Map<UUID, IndexedDocument> documents) {}
+
+    private List<IndexedDocument> sameNameDocuments(String fileName) {
+        String normalized = Normalizer.normalize(fileName, Normalizer.Form.NFC);
+        return documents.values().stream().filter(old -> Normalizer.normalize(old.fileName(), Normalizer.Form.NFC)
+                .equalsIgnoreCase(normalized)).toList();
+    }
+
+    private void validateStorageCapacity(String fileName, long newBytes, int newChunks) {
+        var replaced = sameNameDocuments(fileName);
+        var retained = documents.values().stream().filter(document -> !replaced.contains(document)).toList();
+        if (retained.size() + 1 > properties.maxDocuments()
+                || retained.stream().mapToLong(IndexedDocument::size).sum() + newBytes > properties.maxStoredBytes()
+                || retained.stream().mapToLong(IndexedDocument::chunkCount).sum() + newChunks > properties.maxStoredChunks()) {
+            throw new BadRequestException("Thư viện đã chạm giới hạn lưu trong RAM (" + properties.maxDocuments()
+                    + " tệp, " + properties.maxStoredChunks() + " đoạn, " + properties.maxStoredBytes()
+                    + " byte tệp gốc). Hãy xóa bớt tài liệu trước khi tải thêm.");
+        }
+    }
+
+    private void validateEvidenceAvailability(Set<UUID> ids) {
+        synchronized (storeLock) {
+            if (documents.isEmpty() || ids.stream().anyMatch(id -> !documents.containsKey(id))) {
+                throw new BadRequestException("Tài liệu làm nguồn đã bị xóa hoặc thay trong lúc trả lời. Hãy gửi lại câu hỏi với thư viện hiện tại.");
+            }
+        }
+    }
+
+    private static void validateEmbedding(Embedding embedding, Integer expectedDimensions) {
+        if (embedding == null || embedding.vector() == null || embedding.vector().length == 0
+                || (expectedDimensions != null && embedding.vector().length != expectedDimensions)) {
+            throw new IllegalStateException("Embedding dimension mismatch or empty embedding");
+        }
+        boolean nonzero = false;
+        for (float value : embedding.vector()) {
+            if (!Float.isFinite(value)) throw new IllegalStateException("Embedding contains non-finite values");
+            nonzero |= value != 0;
+        }
+        if (!nonzero) throw new IllegalStateException("Embedding vector is zero");
+    }
 
     private void validateScope(Set<UUID> scope) {
         synchronized (storeLock) {
@@ -398,18 +474,19 @@ public class RagService {
     private SearchEvidence search(String question, Set<UUID> scope) {
         try {
             Embedding queryEmbedding = modelProvider.queryEmbeddingModel().embed(question).content();
-            EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
-                    .queryEmbedding(queryEmbedding)
-                    // BM25 may rescue exact identifiers even with low vector similarity.
-                    .maxResults(Math.max(1, chunkCount()))
-                    .minScore(0.0)
-                    .build();
-
             synchronized (storeLock) {
                 validateScope(scope);
+                validateEmbedding(queryEmbedding, embeddingDimensions);
+                EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
+                        .queryEmbedding(queryEmbedding)
+                        // Count and search the same committed library, even during concurrent uploads.
+                        .maxResults(Math.max(1, chunkCount()))
+                        .minScore(0.0)
+                        .build();
                 EmbeddingSearchResult<TextSegment> result = embeddingStore.search(request);
+                Map<UUID, IndexedDocument> snapshot = snapshotDocuments(scope);
                 return new SearchEvidence(result.matches().stream().filter(match -> scope.isEmpty()
-                        || scope.contains(UUID.fromString(match.embedded().metadata().getString("document_id")))).toList(), List.of());
+                        || scope.contains(UUID.fromString(match.embedded().metadata().getString("document_id")))).toList(), List.of(), snapshot);
             }
         } catch (AiConfigurationException | BadRequestException exception) {
             throw exception;
@@ -430,9 +507,24 @@ public class RagService {
                     }
                 }
                 return new SearchEvidence(List.copyOf(lexical), List.of(
-                        "Embedding câu hỏi tạm thời không khả dụng; đã tìm bằng từ khóa BM25. Điểm tương đồng ngữ nghĩa không có ở lượt này."));
+                        "Embedding câu hỏi tạm thời không khả dụng; đã tìm bằng từ khóa BM25. Điểm tương đồng ngữ nghĩa không có ở lượt này."), snapshotDocuments(scope));
             }
         }
+    }
+
+    private Map<UUID, IndexedDocument> snapshotDocuments(Set<UUID> scope) {
+        return documents.values().stream().filter(document -> scope.isEmpty() || scope.contains(document.id()))
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(IndexedDocument::id, document -> document));
+    }
+
+    private String normalizeCitations(String answer) {
+        var matcher = CITATION.matcher(Normalizer.normalize(answer, Normalizer.Form.NFC));
+        return matcher.replaceAll(match -> {
+            String index = match.group(1).replaceAll("(?U)^\\s+|\\s+$", "");
+            try { index = Integer.toString(Integer.parseInt(index)); }
+            catch (NumberFormatException ignored) { /* Range/format validation below will reject it. */ }
+            return java.util.regex.Matcher.quoteReplacement("[Nguồn " + index + "]");
+        });
     }
 
     private boolean validCitations(String answer, int count) {
@@ -444,6 +536,14 @@ public class RagService {
             } catch (NumberFormatException ignored) { return false; }
         }
         return true;
+    }
+
+    private void validateAnswerFinishReason(FinishReason reason) {
+        if (reason != null && reason != FinishReason.STOP && reason != FinishReason.LENGTH) {
+            throw new AiServiceException(reason == FinishReason.CONTENT_FILTER
+                    ? "AI đã dừng bởi bộ lọc nội dung; không sử dụng phần trả lời chưa hoàn tất. Hãy viết lại câu hỏi."
+                    : "AI dừng trước khi hoàn tất câu trả lời. Hãy thử lại hoặc tách câu hỏi.", null);
+        }
     }
 
     private String buildPrompt(String question, List<EmbeddingMatch<TextSegment>> matches) {

@@ -14,8 +14,10 @@ import org.w3c.dom.Node;
 
 /** Reads visible OOXML text, tables and images in document order. */
 final class WordContentExtractor {
+    private static final int MAX_TABLE_COLUMNS = 1_000;
     private static final String W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     private static final String M = "http://schemas.openxmlformats.org/officeDocument/2006/math";
+    private static final String MC = "http://schemas.openxmlformats.org/markup-compatibility/2006";
     private final DocumentVisionService vision;
     private final ParsingProperties properties;
     private final List<String> warnings = new ArrayList<>();
@@ -39,11 +41,11 @@ final class WordContentExtractor {
                 throw new DocumentProcessingException("Word có quá nhiều hình cần đọc. Hãy chia tài liệu; chưa gọi Gemini.", null);
             }
             StringBuilder text = new StringBuilder();
-            for (var header : word.getHeaderList()) appendParts(text, header.getBodyElements(), header::getPictureDataByID);
+            for (var header : word.getHeaderList()) appendBlocks(text, header._getHdrFtr().getDomNode(), header::getPictureDataByID);
             appendBlocks(text, word.getDocument().getBody().getDomNode(), word::getPictureDataByID);
-            for (var note : word.getFootnotes()) for (var p : note.getParagraphs()) appendParagraph(text, p.getCTP().getDomNode(), word::getPictureDataByID);
-            for (var note : word.getEndnotes()) for (var p : note.getParagraphs()) appendParagraph(text, p.getCTP().getDomNode(), word::getPictureDataByID);
-            for (var footer : word.getFooterList()) appendParts(text, footer.getBodyElements(), footer::getPictureDataByID);
+            for (var note : word.getFootnotes()) appendNote(text, note, "Chú thích chân trang");
+            for (var note : word.getEndnotes()) appendNote(text, note, "Chú thích cuối tài liệu");
+            for (var footer : word.getFooterList()) appendBlocks(text, footer._getHdrFtr().getDomNode(), footer::getPictureDataByID);
             for (var picture : pictures) if (!seenImages.contains(imageKey(picture))) {
                 String extracted = readImage(picture);
                 if (!extracted.isBlank()) {
@@ -53,25 +55,34 @@ final class WordContentExtractor {
             }
             if (imagesRead > 0) warnings.add("Đã đọc " + imagesRead + " hình Word bằng AI. Phần chữ được đặt tại vị trí ảnh khi xác định được; kiểm tra số liệu với bản gốc.");
             if (formulas) warnings.add("Công thức Word được chuyển sang bản chữ; công thức nhiều tầng cần đối chiếu ký hiệu và thứ tự với bản gốc.");
+            DocumentParserService.checkTextLength(text.length());
             return new ParsedDocument(text.toString(), warnings.stream().distinct().toList());
         }
     }
 
-    private void appendParts(StringBuilder out, List<IBodyElement> parts, Function<String, XWPFPictureData> resolver) {
-        for (var part : parts) {
-            if (part instanceof XWPFParagraph p) appendParagraph(out, p.getCTP().getDomNode(), resolver);
-            else if (part instanceof XWPFTable table) appendTable(out, table.getCTTbl().getDomNode(), resolver);
-            else if (part instanceof XWPFSDT control) out.append(control.getContent().getText()).append('\n');
-        }
+    private void appendNote(StringBuilder out, XWPFAbstractFootnoteEndnote note, String label) {
+        if (attribute(note.getCTFtnEdn().getDomNode(), "type").contains("separator")) return;
+        StringBuilder content = new StringBuilder();
+        appendBlocks(content, note.getCTFtnEdn().getDomNode(), id ->
+                note.getOwner().getRelationById(id) instanceof XWPFPictureData picture ? picture : null);
+        if (!content.toString().isBlank()) out.append('\n').append('[').append(label).append(' ')
+                .append(note.getId()).append("]\n").append(content);
     }
 
     private void appendBlocks(StringBuilder out, Node container, Function<String, XWPFPictureData> resolver) {
         for (Node child = container.getFirstChild(); child != null; child = child.getNextSibling()) {
-            if (is(child, W, "del") || is(child, W, "moveFrom")) continue;
+            if (is(child, W, "del") || is(child, W, "moveFrom")) {
+                suppressPictures(child, resolver);
+                continue;
+            }
             if (is(child, W, "p")) appendParagraph(out, child, resolver);
             else if (is(child, W, "tbl")) appendTable(out, child, resolver);
+            else if (is(child, MC, "AlternateContent")) {
+                Node selected = alternateContent(child, resolver);
+                if (selected != null) appendBlocks(out, selected, resolver);
+            }
             else appendBlocks(out, child, resolver); // Includes body-level content controls.
-            if (out.length() > 2_000_000) throw new DocumentProcessingException("Word có quá nhiều nội dung. Hãy chia tài liệu thành các phần nhỏ hơn.", null);
+            DocumentParserService.checkTextLength(out.length());
         }
     }
 
@@ -82,7 +93,18 @@ final class WordContentExtractor {
 
     private String inline(Node node, Function<String, XWPFPictureData> resolver) {
         if (node == null) return "";
-        if (is(node, W, "del") || is(node, W, "moveFrom") || is(node, W, "instrText")) return "";
+        if (is(node, W, "del") || is(node, W, "moveFrom") || is(node, W, "instrText")) {
+            suppressPictures(node, resolver);
+            return "";
+        }
+        if (is(node, W, "r") && enabled(child(child(node, W, "rPr"), W, "vanish"))) {
+            warnings.add("Word có chữ ẩn; bản chữ chỉ giữ nội dung hiển thị. Đối chiếu bản gốc nếu cần xem chữ ẩn.");
+            suppressPictures(node, resolver);
+            return "";
+        }
+        if (is(node, MC, "AlternateContent")) return inline(alternateContent(node, resolver), resolver);
+        if (is(node, W, "footnoteReference")) return " [Chú thích chân trang " + attribute(node, "id") + "] ";
+        if (is(node, W, "endnoteReference")) return " [Chú thích cuối tài liệu " + attribute(node, "id") + "] ";
         if ((is(node, W, "t") || is(node, M, "t") || "t".equals(node.getLocalName())
                 && "http://schemas.openxmlformats.org/drawingml/2006/main".equals(node.getNamespaceURI()))) {
             StringBuilder value = new StringBuilder();
@@ -97,7 +119,10 @@ final class WordContentExtractor {
             String id = attribute(node, "embed");
             if (id.isEmpty()) id = attribute(node, "id");
             var picture = resolver.apply(id);
-            if (picture != null) return "\n[Chữ từ hình tại vị trí này]\n" + readImage(picture) + "\n";
+            if (picture != null) {
+                String extracted = readImage(picture);
+                return extracted.isBlank() ? "" : "\n[Chữ từ hình tại vị trí này]\n" + extracted + "\n";
+            }
         }
         if (is(node, W, "sym")) { warnings.add("Word có ký hiệu bằng phông chuyên dụng chưa đọc được; đối chiếu bản gốc hoặc xuất PDF."); return "[Ký hiệu cần đối chiếu]"; }
         if (M.equals(node.getNamespaceURI())) {
@@ -105,16 +130,61 @@ final class WordContentExtractor {
             if (is(node, M, "f")) return "(" + inline(child(node, M, "num"), resolver) + ")/(" + inline(child(node, M, "den"), resolver) + ")";
             if (is(node, M, "sSup")) return inline(child(node, M, "e"), resolver) + "^(" + inline(child(node, M, "sup"), resolver) + ")";
             if (is(node, M, "sSub")) return inline(child(node, M, "e"), resolver) + "_(" + inline(child(node, M, "sub"), resolver) + ")";
+            if (is(node, M, "sSubSup")) return inline(child(node, M, "e"), resolver)
+                    + "_(" + inline(child(node, M, "sub"), resolver) + ")^(" + inline(child(node, M, "sup"), resolver) + ")";
+            if (is(node, M, "rad")) {
+                String degree = inline(child(node, M, "deg"), resolver).strip();
+                return "căn bậc (" + (degree.isBlank() ? "2" : degree) + ") của ("
+                        + inline(child(node, M, "e"), resolver) + ")";
+            }
         }
         StringBuilder result = new StringBuilder();
         for (Node nested = node.getFirstChild(); nested != null; nested = nested.getNextSibling()) {
             result.append(inline(nested, resolver));
             if (is(nested, W, "p")) result.append('\n');
         }
-        return result.toString();
+        String visible = result.toString();
+        if (is(node, W, "r") && !visible.isBlank()) {
+            Node properties = child(node, W, "rPr");
+            String alignment = value(properties, "vertAlign");
+            if (alignment.equals("superscript")) visible = "^(" + visible + ")";
+            else if (alignment.equals("subscript")) visible = "_(" + visible + ")";
+            if (enabled(child(properties, W, "strike")) || enabled(child(properties, W, "dstrike"))) {
+                visible = "[Chữ gạch bỏ: " + visible + "]";
+                warnings.add("Word có chữ gạch bỏ; giữ chữ cùng dấu gạch bỏ để phân biệt với nội dung hiện hành.");
+            }
+        }
+        return visible;
     }
 
     private record MergedCell(String value, int row) {}
+
+    private Node alternateContent(Node node, Function<String, XWPFPictureData> resolver) {
+        // A modern Word document displays one branch, never both representations.
+        Node choice = child(node, MC, "Choice");
+        Node selected = choice == null ? child(node, MC, "Fallback") : choice;
+        for (Node branch = node.getFirstChild(); branch != null; branch = branch.getNextSibling()) {
+            if (branch != selected) suppressPictures(branch, resolver);
+        }
+        return selected;
+    }
+
+    private void suppressPictures(Node node, Function<String, XWPFPictureData> resolver) {
+        if (node == null) return;
+        if ("blip".equals(node.getLocalName()) || "imagedata".equals(node.getLocalName())) {
+            String id = attribute(node, "embed");
+            if (id.isEmpty()) id = attribute(node, "id");
+            var picture = resolver.apply(id);
+            if (picture != null) seenImages.add(imageKey(picture));
+        }
+        for (Node child = node.getFirstChild(); child != null; child = child.getNextSibling()) suppressPictures(child, resolver);
+    }
+
+    private boolean enabled(Node setting) {
+        if (setting == null) return false;
+        String value = attribute(setting, "val").toLowerCase(Locale.ROOT);
+        return !value.equals("false") && !value.equals("0") && !value.equals("off");
+    }
     private void appendTable(StringBuilder out, Node table, Function<String, XWPFPictureData> resolver) {
         List<Node> rows = children(table, W, "tr");
         List<String> first = List.of();
@@ -123,9 +193,12 @@ final class WordContentExtractor {
             List<String> values = new ArrayList<>();
             List<String> mergeNotes = new ArrayList<>();
             int column = integer(value(child(rows.get(r), W, "trPr"), "gridBefore"), 0);
+            checkTableColumn(column);
+            for (int skipped = 0; skipped < column; skipped++) values.add("[Không có ô]");
             for (Node cell : children(rows.get(r), W, "tc")) {
                 Node cellProperties = child(cell, W, "tcPr");
                 int span = Math.max(1, integer(value(cellProperties, "gridSpan"), 1));
+                checkTableColumn((long) column + span);
                 Node merge = child(cellProperties, W, "vMerge");
                 StringBuilder content = new StringBuilder();
                 appendBlocks(content, cell, resolver);
@@ -142,10 +215,24 @@ final class WordContentExtractor {
                             attribute(merge, "val").equals("restart") ? r + 1 : merged.getOrDefault(column, new MergedCell(text, r + 1)).row()));
                     else merged.remove(column + offset);
                 }
-                values.add(text);
+                // Keep logical column positions, including horizontally merged cells and missing leading cells.
+                for (int offset = 0; offset < span; offset++) values.add(text);
                 if (span > 1) mergeNotes.add("Ô bắt đầu ở cột " + (column + 1) + " gộp ngang " + span + " cột");
                 column += span;
             }
+            int after = integer(value(child(rows.get(r), W, "trPr"), "gridAfter"), 0);
+            checkTableColumn((long) column + after);
+            for (int skipped = 0; skipped < after; skipped++) values.add("[Không có ô]");
+            // Merged cells and repeated headers can expand a small XML table enormously.
+            // Check the complete row before String.join allocates its expanded representation.
+            long valuesLength = joinedLength(values);
+            long rowLength = r == 0
+                    ? "\nBảng — dòng đầu: ".length() + valuesLength + 1
+                    : "Dòng đầu của bảng: ".length() + joinedLength(first)
+                            + "\nDòng ".length() + String.valueOf(r + 1).length()
+                            + ": ".length() + valuesLength + 1;
+            for (String note : mergeNotes) rowLength += note.length() + 3L;
+            DocumentParserService.checkTextLength(out.length() + rowLength);
             if (r == 0) {
                 first = List.copyOf(values);
                 out.append("\nBảng — dòng đầu: ").append(String.join(" | ", first)).append('\n');
@@ -154,6 +241,22 @@ final class WordContentExtractor {
                         .append(": ").append(String.join(" | ", values)).append('\n');
             }
             for (String note : mergeNotes) out.append('[').append(note).append("]\n");
+        }
+    }
+
+    private long joinedLength(List<String> values) {
+        long length = Math.max(0, values.size() - 1) * 3L; // " | " separators
+        for (String value : values) {
+            length += value.length();
+            DocumentParserService.checkTextLength(length);
+        }
+        return length;
+    }
+
+    private void checkTableColumn(long columns) {
+        if (columns < 0 || columns > MAX_TABLE_COLUMNS) {
+            throw new DocumentProcessingException("Bảng Word có cấu trúc không hợp lệ hoặc vượt giới hạn "
+                    + MAX_TABLE_COLUMNS + " cột. Hãy kiểm tra tệp hoặc chia nhỏ bảng.", null);
         }
     }
 

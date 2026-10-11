@@ -18,6 +18,7 @@ public class GeminiModelProvider {
     private static final int EMBEDDING_BATCH_SIZE = 50;
 
     private final GeminiProperties properties;
+    private final QuotaRetryPolicy embeddingRetries = new QuotaRetryPolicy();
     private volatile ChatModel chatModel;
     private volatile EmbeddingModel documentEmbeddingModel;
     private volatile EmbeddingModel queryEmbeddingModel;
@@ -81,12 +82,12 @@ public class GeminiModelProvider {
                 .outputDimensionality(properties.embeddingDimensions())
                 .timeout(Duration.ofSeconds(45))
                 .maxSegmentsPerBatch(EMBEDDING_BATCH_SIZE)
-                .maxRetries(2);
+                .maxRetries(0);
 
         if (taskType == TaskTypeEnum.RETRIEVAL_DOCUMENT) {
             builder.titleMetadataKey("title");
         }
-        return builder.build();
+        return new QuotaAwareEmbeddingModel(builder.build(), embeddingRetries);
     }
 
     private void requireApiKey() {

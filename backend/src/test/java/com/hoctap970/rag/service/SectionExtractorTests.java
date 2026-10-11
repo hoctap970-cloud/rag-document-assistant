@@ -50,4 +50,10 @@ class SectionExtractorTests {
         assertThat(sections).hasSize(1);
         assertThat(sections.getFirst().title()).isEqualTo("Nội dung chính");
     }
+
+    @Test void overflowingOrZeroPageMarkersRemainPlainContentInsteadOfCrashing() {
+        var sections = extractor.extract("[[TRANG 999999999999999999999]]\nPhí 215.\n[[TRANG 0]]\nNgoại lệ.");
+        assertThat(sections).allMatch(s -> s.pageNumber() == 0);
+        assertThat(sections.stream().map(SectionContent::text)).anyMatch(text -> text.contains("Phí 215"));
+    }
 }

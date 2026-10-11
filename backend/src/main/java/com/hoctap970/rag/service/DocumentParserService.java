@@ -25,6 +25,8 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class DocumentParserService {
 
+    static final int MAX_EXTRACTED_CHARACTERS = 2_000_000;
+
     private final DocumentVisionService vision;
     private final ParsingProperties properties;
 
@@ -42,7 +44,8 @@ public class DocumentParserService {
     }
 
     public ParsedDocument parseDetailed(MultipartFile file, ReadingMode readMode) {
-        String name = String.valueOf(file.getOriginalFilename()).toLowerCase(Locale.ROOT);
+        // Upload validation and format dispatch must agree, including browser paths and trailing spaces.
+        String name = new DocumentFileValidator().validateAndCleanFileName(file).toLowerCase(Locale.ROOT);
         if (readMode == ReadingMode.DEEP && !name.endsWith(".pdf")) {
             throw new BadRequestException("Chế độ đọc kỹ từng trang chỉ dành cho PDF. Với Word, hãy chọn Tự động.");
         }
@@ -64,6 +67,7 @@ public class DocumentParserService {
                             List.of("File DOC được đọc theo lớp chữ. Nếu có hình/bảng phức tạp, nên xuất PDF hoặc DOCX để đọc và đối chiếu tốt hơn."));
                 }
             }
+            checkTextLength(parsed.text() == null ? 0 : parsed.text().length());
             if (!name.endsWith(".pdf")) parsed = new ParsedDocument(escapePageMarkers(parsed.text()), parsed.warnings());
             if (parsed.text() == null || parsed.text().replaceAll("\\[\\[TRANG \\d+]]", "").isBlank()) {
                 throw new DocumentProcessingException("Không tìm thấy nội dung đọc được trong tài liệu.", null);
@@ -102,10 +106,13 @@ public class DocumentParserService {
             PDFTextStripper stripper = new PDFTextStripper();
             stripper.setSortByPosition(true);
             List<PdfPagePlan> pages = new ArrayList<>();
+            long nativeCharacters = 0;
             for (int index = 0; index < pdf.getNumberOfPages(); index++) {
                 stripper.setStartPage(index + 1);
                 stripper.setEndPage(index + 1);
                 String nativeText = stripper.getText(pdf).strip();
+                nativeCharacters += nativeText.length();
+                checkTextLength(nativeCharacters);
                 boolean sparse = nativeText.codePoints().filter(Character::isLetterOrDigit).count() < 60;
                 boolean garbled = nativeText.codePoints().anyMatch(c -> c == 0xFFFD || c >= 0xE000 && c <= 0xF8FF);
                 boolean visual = readMode == ReadingMode.DEEP
@@ -133,7 +140,7 @@ public class DocumentParserService {
                         pageText = nativeText + (visualText.isBlank() ? "" :
                                 "\n[Phần đọc bằng AI từ trang]\n" + visualText);
                     } catch (DocumentProcessingException failure) {
-                        if (readMode == ReadingMode.DEEP || nativeText.codePoints().filter(Character::isLetterOrDigit).count() < 60) throw failure;
+                        if (readMode == ReadingMode.DEEP || nativeText.isBlank()) throw failure;
                         warnings.add("Trang " + (index + 1) + ": đã giữ lớp chữ nhưng chưa đọc được hình bằng AI. " + failure.getMessage());
                         visionPages--;
                     }
@@ -141,6 +148,7 @@ public class DocumentParserService {
                     warnings.add("Trang " + (index + 1) + " có ít chữ hoặc có hình; đọc bằng AI đang tắt, nội dung có thể thiếu.");
                 }
                 text.append("\n[[TRANG ").append(index + 1).append("]]\n").append(pageText).append('\n');
+                checkTextLength(text.length());
             }
         }
         if (visionPages > 0) {
@@ -158,7 +166,16 @@ public class DocumentParserService {
     }
 
     private String escapePageMarkers(String text) {
-        return text == null ? "" : text.replaceAll("(?m)^\\s*\\[\\[TRANG (\\d+)]]\\s*$", "[Nội dung tài liệu] [[TRANG $1]]");
+        // Section normalization maps NBSP to spaces. Escape all equivalent reserved markers first.
+        return text == null ? "" : text.replaceAll("(?m)^[\\t \\x{00A0}]*\\[\\[TRANG[ \\x{00A0}]+(\\d+)\\]\\][\\t \\x{00A0}]*$",
+                "[Nội dung tài liệu] [[TRANG $1]]");
+    }
+
+    static void checkTextLength(long length) {
+        if (length > MAX_EXTRACTED_CHARACTERS) {
+            throw new DocumentProcessingException("Tài liệu có quá nhiều nội dung sau khi giải nén/trích xuất (giới hạn "
+                    + MAX_EXTRACTED_CHARACTERS + " ký tự). Hãy chia thành các phần nhỏ hơn.", null);
+        }
     }
 
     private boolean hasLargeImage(PDResources resources, Set<PDResources> visited, int depth) throws Exception {

@@ -21,9 +21,20 @@ import org.springframework.stereotype.Component;
 public class HybridRetriever {
     private static final Set<String> STOP = Set.of(
             "la", "va", "cua", "cac", "nhung", "cho", "voi", "trong", "theo", "ve", "duoc",
-            "mot", "hay", "gi", "nao", "tai", "lieu", "toi", "ban", "co", "khong", "nhu",
+            "mot", "hay", "gi", "nao", "tai", "lieu", "toi", "ban", "co", "nhu",
             "the", "bao", "nhieu", "a", "an", "of", "in", "is", "are");
     private static final Pattern TOKENS = Pattern.compile("[a-z0-9]+(?:[-./][a-z0-9]+)*");
+    private static final Pattern OVERVIEW = Pattern.compile(
+            "(?s).*(tom tat|tong quan|toan bo|tong hop|liet ke tat ca|liet ke day du|moi dieu kien|all (?:items|conditions|exceptions)).*");
+    private static final Pattern CLAUSES = Pattern.compile("[?;\\n]|\\s+(?:va|dong thoi|so voi|and|versus)\\s+");
+    private static final Pattern EXCLUSION = Pattern.compile(
+            "(?s).*(?:khong (?:dung|su dung|lay|xet)|bo qua|ngoai tru|except|excluding|exclude)\\s+(?:(?:tep|file|tai lieu)\\s+)?[\\s'\"‘“]*$");
+    private static final Pattern NEGATED_IDENTIFIER = Pattern.compile(
+            "\\b(?:khong phai|khong dung|ngoai tru|not|except)\\s+(?:(?:nam|ma|year|code)\\s+)?([a-z0-9]+(?:[-./][a-z0-9]+)*)");
+    private static final Pattern NEGATIVE_RULE = Pattern.compile(
+            "\\b(?:khong (?:duoc|ap dung|du dieu kien|cho phep)|not (?:allowed|eligible|applicable))\\b");
+    private static final Pattern QUOTED_FILE = Pattern.compile("['\"‘“]([^'\"’”\\n]+\\.(?:pdf|docx|doc))['\"’”]", Pattern.CASE_INSENSITIVE);
+    private static final Pattern BARE_FILE = Pattern.compile("(?<![\\p{L}\\p{N}_-])[\\p{L}\\p{N}_.-]+\\.(?:pdf|docx|doc)(?![\\p{L}\\p{N}_-])", Pattern.CASE_INSENSITIVE);
     private final RagProperties properties;
     private final GeminiModelProvider models;
 
@@ -33,14 +44,24 @@ public class HybridRetriever {
     }
 
     public record Selection(List<EmbeddingMatch<TextSegment>> matches, boolean complete,
-                            boolean overview, int corpusSize) {}
+                            boolean overview, int corpusSize, List<String> warnings) {
+        public Selection(List<EmbeddingMatch<TextSegment>> matches, boolean complete, boolean overview, int corpusSize) {
+            this(matches, complete, overview, corpusSize, List.of());
+        }
+    }
 
     public Selection select(String question, List<EmbeddingMatch<TextSegment>> corpus) {
-        boolean overview = normalize(question).matches("(?s).*(tom tat|tong quan|toan bo|tong hop).*");
+        boolean overview = OVERVIEW.matcher(normalize(question)).matches();
         List<EmbeddingMatch<TextSegment>> ordered = corpus.stream().sorted(documentOrder()).toList();
-        List<String> namedFiles = mentionedFiles(question, ordered);
+        FileScope fileScope = mentionedFiles(question, ordered);
+        if (!fileScope.missing().isEmpty()) return new Selection(List.of(), false, overview, 0,
+                List.of("Không tìm thấy tệp được nhắc trong phạm vi tài liệu đã chọn: " + String.join(", ", fileScope.missing())
+                        + ". Hãy kiểm tra tên tệp hoặc tải thêm tài liệu; chưa dùng tài liệu khác để trả lời."));
+        List<String> namedFiles = fileScope.included();
         if (!namedFiles.isEmpty()) ordered = ordered.stream().filter(m -> namedFiles.contains(file(m))).toList();
+        ordered = ordered.stream().filter(m -> !fileScope.excluded().contains(file(m))).toList();
         final List<EmbeddingMatch<TextSegment>> scope = ordered;
+        String retrievalQuestion = retrievalQuestion(question, fileScope);
 
         int total = scope.stream().mapToInt(this::contextCost).sum();
         // Short documents fit in full; no top-k information loss for exceptions or tables.
@@ -59,8 +80,8 @@ public class HybridRetriever {
                         .thenComparing(HybridRetriever::key))
                 .limit(properties.candidateCount()).toList();
         fuse(fusion, dense, 1.0);
-        fuse(fusion, lexical(question, distinct), 1.2);
-        Arrays.stream(question.split("[?;\n]|(?iu)\\s+(?:và|đồng thời|so với)\\s+"))
+        fuse(fusion, lexical(retrievalQuestion, distinct), 1.2);
+        Arrays.stream(CLAUSES.split(retrievalQuestion))
                 .filter(part -> tokens(part).size() >= 2).limit(4)
                 .forEach(part -> fuse(fusion, lexical(part, distinct), 0.5));
 
@@ -69,6 +90,9 @@ public class HybridRetriever {
                         .reversed().thenComparing(HybridRetriever::key))
                 .limit(properties.candidateCount()).toList();
         List<EmbeddingMatch<TextSegment>> seeds = new ArrayList<>();
+        List<EmbeddingMatch<TextSegment>> coverage = overview ? List.of()
+                : coverageAnchors(retrievalQuestion, namedFiles, distinct);
+        seeds.addAll(coverage);
         if (overview) {
             // Spread coverage over sections/files instead of filling all slots from one topic.
             List<EmbeddingMatch<TextSegment>> representatives = new ArrayList<>(distinct.stream()
@@ -82,18 +106,24 @@ public class HybridRetriever {
             }
         }
         seeds.addAll(properties.rerankEnabled() && !overview ? rerank(question, candidates) : candidates);
-        int anchorLimit = overview ? properties.maxResults() * 2 : properties.maxResults();
+        int anchorLimit = overview ? (int) Math.min(scope.size(), properties.maxResults() * 2L) : properties.maxResults();
         seeds = seeds.stream().collect(Collectors.toMap(HybridRetriever::key, m -> m,
                         (first, ignored) -> first, LinkedHashMap::new))
-                .values().stream().limit(anchorLimit).toList();
+                .values().stream().toList();
 
         Map<String, EmbeddingMatch<TextSegment>> selected = new LinkedHashMap<>();
         Set<String> duplicateText = new HashSet<>();
         int used = 0;
-        for (var seed : seeds) used = add(seed, selected, duplicateText, used);
+        List<EmbeddingMatch<TextSegment>> admittedSeeds = new ArrayList<>();
+        for (var seed : seeds) {
+            if (admittedSeeds.size() >= anchorLimit) break;
+            int before = selected.size();
+            used = add(seed, selected, duplicateText, used);
+            if (selected.size() > before) admittedSeeds.add(seed);
+        }
         Map<String, EmbeddingMatch<TextSegment>> byKey = scope.stream().collect(Collectors.toMap(
                 HybridRetriever::key, m -> m, (first, ignored) -> first));
-        for (var seed : seeds) {
+        for (var seed : admittedSeeds) {
             for (int distance = 1; distance <= properties.neighborWindow(); distance++) {
                 for (int delta : new int[]{-distance, distance}) {
                     var neighbor = byKey.get(doc(seed) + ":" + (index(seed) + delta));
@@ -101,8 +131,12 @@ public class HybridRetriever {
                 }
             }
         }
+        List<String> warnings = new ArrayList<>();
+        if (coverage.stream().anyMatch(anchor -> !selected.containsKey(key(anchor)))) {
+            warnings.add("Phạm vi câu hỏi có nhiều mã, năm, tài liệu hoặc vế; giới hạn số đoạn/ngữ cảnh chưa giữ đủ bằng chứng cho mọi phần. Hãy tách câu hỏi hoặc chọn ít tài liệu hơn.");
+        }
         return new Selection(selected.values().stream().sorted(documentOrder()).toList(),
-                selected.size() == scope.size(), overview, scope.size());
+                selected.size() == scope.size(), overview, scope.size(), List.copyOf(warnings));
     }
 
     private int add(EmbeddingMatch<TextSegment> match, Map<String, EmbeddingMatch<TextSegment>> selected,
@@ -121,8 +155,9 @@ public class HybridRetriever {
     }
 
     private record FileMention(String name, int start, int end) {}
+    private record FileScope(List<String> included, List<String> excluded, List<String> missing) {}
 
-    private List<String> mentionedFiles(String question, List<EmbeddingMatch<TextSegment>> corpus) {
+    private FileScope mentionedFiles(String question, List<EmbeddingMatch<TextSegment>> corpus) {
         String normalizedQuestion = normalize(question);
         List<FileMention> mentions = new ArrayList<>();
         corpus.stream().map(HybridRetriever::file).distinct().forEach(name -> {
@@ -132,10 +167,97 @@ public class HybridRetriever {
             while (matcher.find()) mentions.add(new FileMention(name, matcher.start(), matcher.end()));
         });
         // Prefer the whole filename, e.g. 'báo cáo 2026.pdf' over a suffix '2026.pdf'.
-        return mentions.stream().filter(mention -> mentions.stream().noneMatch(other ->
+        List<FileMention> exact = mentions.stream().filter(mention -> mentions.stream().noneMatch(other ->
                         other.start() <= mention.start() && other.end() >= mention.end()
                                 && other.end() - other.start() > mention.end() - mention.start()))
-                .map(FileMention::name).distinct().toList();
+                .sorted(Comparator.comparingInt(FileMention::start)).toList();
+        Set<String> included = new LinkedHashSet<>();
+        Set<String> excluded = new LinkedHashSet<>();
+        FileMention previous = null;
+        boolean previousExcluded = false;
+        for (var mention : exact) {
+            String prefix = normalizedQuestion.substring(Math.max(0, mention.start() - 120), mention.start());
+            boolean isExcluded = EXCLUSION.matcher(prefix).matches();
+            if (!isExcluded && previous != null && previousExcluded) {
+                String between = normalizedQuestion.substring(previous.end(), mention.start());
+                isExcluded = between.matches("[\\s,'\"‘’“”]*(?:(?:va|and|hoac|or)[\\s,'\"‘’“”]*)?");
+            }
+            (isExcluded ? excluded : included).add(mention.name());
+            previous = mention;
+            previousExcluded = isExcluded;
+        }
+        Set<String> missing = new LinkedHashSet<>();
+        for (Pattern pattern : List.of(QUOTED_FILE, BARE_FILE)) {
+            var matcher = pattern.matcher(normalizedQuestion);
+            while (matcher.find()) {
+                int start = pattern == QUOTED_FILE ? matcher.start(1) : matcher.start();
+                int end = pattern == QUOTED_FILE ? matcher.end(1) : matcher.end();
+                String name = pattern == QUOTED_FILE ? matcher.group(1) : matcher.group();
+                // A bare suffix inside a known or quoted full filename is not a second filename.
+                if (exact.stream().anyMatch(m -> m.start() <= start && m.end() >= end)) continue;
+                if (pattern == BARE_FILE && missing.stream().anyMatch(m -> m.endsWith(name))) continue;
+                String prefix = normalizedQuestion.substring(Math.max(0, start - 120), start);
+                if (!EXCLUSION.matcher(prefix).matches()) missing.add(name);
+            }
+        }
+        return new FileScope(List.copyOf(included), List.copyOf(excluded), List.copyOf(missing));
+    }
+
+    private String retrievalQuestion(String question, FileScope scope) {
+        String result = normalize(question);
+        for (String name : scope.included()) result = result.replace(normalize(name), " ");
+        for (String name : scope.excluded()) result = result.replace(normalize(name), " ");
+        // Negated identifiers express a rejected alternative, never the requested exact anchor.
+        return NEGATED_IDENTIFIER.matcher(result).replaceAll(" ");
+    }
+
+    private List<EmbeddingMatch<TextSegment>> coverageAnchors(String question, List<String> namedFiles,
+                                                             List<EmbeddingMatch<TextSegment>> scope) {
+        Map<String, EmbeddingMatch<TextSegment>> anchors = new LinkedHashMap<>();
+        List<String> identifiers = tokens(question).stream().distinct().filter(HybridRetriever::isIdentifier).toList();
+        if (!identifiers.isEmpty()) {
+            var allIdentifiers = scope.stream().filter(m -> evidenceTokens(m).containsAll(identifiers)).toList();
+            if (!allIdentifiers.isEmpty()) addBestAnchor(question, allIdentifiers, anchors);
+            else for (String identifier : identifiers) {
+                var matching = scope.stream().filter(m -> evidenceTokens(m).contains(identifier)).toList();
+                addBestAnchor(question, matching, anchors);
+            }
+        }
+        if (NEGATIVE_RULE.matcher(question).find()) {
+            var negative = scope.stream().filter(m -> NEGATIVE_RULE.matcher(normalize(m.embedded().text())).find()).toList();
+            addBestAnchor(question, negative, anchors);
+        }
+        // Each explicitly compared file gets its own evidence; fusion alone favors the dominant file.
+        if (namedFiles.size() > 1) for (String name : namedFiles) {
+            addBestAnchor(question, scope.stream().filter(m -> name.equals(file(m))).toList(), anchors);
+        }
+        List<String> clauses = Arrays.stream(CLAUSES.split(question))
+                .filter(part -> tokens(part).size() >= 2).limit(8).toList();
+        if (clauses.size() > 1) for (String clause : clauses) {
+            List<String> exact = tokens(clause).stream().filter(HybridRetriever::isIdentifier).distinct().toList();
+            var matching = exact.isEmpty() ? scope
+                    : scope.stream().filter(m -> evidenceTokens(m).containsAll(exact)).toList();
+            addBestAnchor(clause, matching, anchors);
+        }
+        return List.copyOf(anchors.values());
+    }
+
+    private void addBestAnchor(String question, List<EmbeddingMatch<TextSegment>> scope,
+                               Map<String, EmbeddingMatch<TextSegment>> anchors) {
+        List<EmbeddingMatch<TextSegment>> ranking = lexical(question, scope);
+        if (ranking.isEmpty()) ranking = scope.stream().filter(m -> m.score() >= properties.minScore())
+                .sorted(Comparator.comparingDouble((EmbeddingMatch<TextSegment> m) -> m.score()).reversed()
+                        .thenComparing(HybridRetriever::key)).toList();
+        if (!ranking.isEmpty()) anchors.putIfAbsent(key(ranking.getFirst()), ranking.getFirst());
+    }
+
+    private static boolean isIdentifier(String term) {
+        return term.matches("(?:19|20)\\d{2}")
+                || (term.matches(".*[a-z].*") && term.matches(".*[0-9].*") && !term.matches(".*\\.(?:pdf|docx|doc)$"));
+    }
+
+    private static Set<String> evidenceTokens(EmbeddingMatch<TextSegment> match) {
+        return new HashSet<>(tokens(match.embedded().metadata().getString("section") + " " + match.embedded().text()));
     }
 
     private static String contentKey(EmbeddingMatch<TextSegment> match) {
@@ -225,7 +347,7 @@ public class HybridRetriever {
 
     static String normalize(String text) {
         return Normalizer.normalize(text.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "").replace('đ', 'd');
+                .replaceAll("\\p{M}+", "").replace('đ', 'd').replaceAll("[\\p{Pd}−]", "-");
     }
 
     static List<String> tokens(String text) {

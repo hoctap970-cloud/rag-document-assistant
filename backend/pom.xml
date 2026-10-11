@@ -89,4 +89,46 @@
 		</plugins>
 	</build>
 
+    <!-- The checked-in React build supports Java-only clones and IntelliJ Run.
+         Opt in to regenerate it from source with: ./mvnw -Pfrontend package -->
+    <profiles>
+        <profile>
+            <id>frontend</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.eirslett</groupId>
+                        <artifactId>frontend-maven-plugin</artifactId>
+                        <version>1.15.4</version>
+                        <configuration>
+                            <workingDirectory>${project.basedir}/../frontend</workingDirectory>
+                            <installDirectory>${project.build.directory}/frontend-tools</installDirectory>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>install-node</id>
+                                <goals><goal>install-node-and-npm</goal></goals>
+                                <configuration><nodeVersion>v24.19.0</nodeVersion></configuration>
+                            </execution>
+                            <execution>
+                                <id>frontend-dependencies</id>
+                                <goals><goal>npm</goal></goals>
+                                <configuration><arguments>ci</arguments></configuration>
+                            </execution>
+                            <execution>
+                                <id>frontend-tests</id>
+                                <goals><goal>npm</goal></goals>
+                                <configuration><arguments>test</arguments></configuration>
+                            </execution>
+                            <execution>
+                                <id>frontend-build</id>
+                                <goals><goal>npm</goal></goals>
+                                <configuration><arguments>run build</arguments></configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

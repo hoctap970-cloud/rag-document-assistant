@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 public class SectionExtractor {
 
     private static final String DEFAULT_SECTION = "Nội dung chính";
-    private static final Pattern PAGE_MARKER = Pattern.compile("^\\[\\[TRANG (\\d+)]]$");
+    private static final Pattern PAGE_MARKER = Pattern.compile("^\\[\\[TRANG ([1-9]\\d{0,8})]]$");
     private static final Pattern KEYWORD_HEADING = Pattern.compile(
             "^(chương|phần|mục|điều|bài|section|chapter)\\s+[\\p{L}0-9IVXLCDM]+.*$",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE

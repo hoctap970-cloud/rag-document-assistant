@@ -50,6 +50,10 @@ public class DocumentVisionService {
                 throw new DocumentProcessingException(
                         "Trang có quá nhiều nội dung, phần đọc bằng AI bị cắt. Hãy chia nhỏ hoặc OCR bằng công cụ chuyên dụng.", null);
             }
+            if (response.finishReason() != null && response.finishReason() != FinishReason.STOP) {
+                throw new DocumentProcessingException(
+                        "AI chưa hoàn tất việc đọc trang/hình. Hãy thử lại hoặc OCR bằng công cụ chuyên dụng.", null);
+            }
             String text = response.aiMessage() == null ? null : response.aiMessage().text();
             if (text == null || text.isBlank()) {
                 throw new DocumentProcessingException("AI không đọc được trang/hình trong tài liệu.", null);

@@ -31,6 +31,16 @@ class DocumentVisionTests {
         assertThat(vision().readPdfPage(new byte[]{1, 2})).isEmpty();
     }
 
+    @Test void blockedOrUnfinishedTranscriptionCannotBeIndexedAsComplete() {
+        for (var reason : new FinishReason[]{FinishReason.CONTENT_FILTER, FinishReason.OTHER, FinishReason.TOOL_EXECUTION}) {
+            when(chat.chat(any(ChatRequest.class))).thenReturn(ChatResponse.builder()
+                    .aiMessage(AiMessage.from("Chỉ đọc được phần đầu"))
+                    .finishReason(reason).build());
+            assertThatThrownBy(() -> vision().readPdfPage(new byte[]{1, 2}))
+                    .isInstanceOf(DocumentProcessingException.class).hasMessageContaining("hoàn tất");
+        }
+    }
+
     private DocumentVisionService vision() {
         var models = mock(GeminiModelProvider.class);
         when(models.chatModel()).thenReturn(chat);

@@ -108,6 +108,29 @@ class DemoApiTests {
                 .andExpect(jsonPath("$.ready").value(true)).andExpect(jsonPath("$.chatModel").value("chat"));
     }
 
+    @Test void unsupportedHttpMethodsMediaAndMissingResourcesReturnCorrectStatuses() throws Exception {
+        mvc.perform(put("/api/documents")).andExpect(status().isMethodNotAllowed())
+                .andExpect(header().string("Allow", org.hamcrest.Matchers.containsString("GET")))
+                .andExpect(jsonPath("$.status").value(405));
+        mvc.perform(get("/api/health").accept(MediaType.APPLICATION_XML)).andExpect(status().isNotAcceptable());
+        mvc.perform(post("/api/chat").contentType(MediaType.TEXT_PLAIN).content("câu hỏi"))
+                .andExpect(status().isUnsupportedMediaType());
+        mvc.perform(get("/api/documents/" + UUID.randomUUID() + "/original"))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404));
+        verifyNoInteractions(chat);
+    }
+
+    @Test void tooLongQuestionsAndTooManyDocumentIdsAreRejectedBeforeAi() throws Exception {
+        String ids = String.join(",", Collections.nCopies(21, "\"" + UUID.randomUUID() + "\""));
+        mvc.perform(post("/api/chat").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"question\":\"" + "x".repeat(2001) + "\"}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("2.000")));
+        mvc.perform(post("/api/chat").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"question\":\"x\",\"documentIds\":[" + ids + "]}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("20")));
+        verifyNoInteractions(chat);
+    }
+
     private String upload(String name, byte[] bytes) throws Exception {
         String json = mvc.perform(multipart("/api/documents/upload").file(new MockMultipartFile("file", name, "", bytes)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

@@ -21,10 +21,31 @@ Mặc định dùng `gemini-3.8-flash` và `gemini-embedding-001` (768 chiều).
 
 ## Chạy ứng dụng
 
+### VS Code
+
+Clone repository, dùng **File → Open Folder** mở thư mục `rag-document-assistant/backend`, cài **Extension Pack for Java** và chọn JDK 21. Chờ Java tải dự án xong, mở **Run and Debug**, chọn **RAG - localhost 8080**, rồi nhấn **F5**.
+
+Dán Gemini API key của người chạy vào hộp nhập có che ký tự và nhấn Enter. Cấu hình chỉ chứa `${input:geminiApiKey}`, không chứa key thật. Log xuất hiện trong **Debug Console** (`Ctrl+Shift+Y`), tránh hiện lệnh PowerShell chứa key trong Terminal. Mở **http://localhost:8080** và giữ phiên chạy; nhấn **Shift+F5** để dừng. Mỗi lần F5 sẽ hỏi lại key.
+
+### PowerShell
+
 ```powershell
 git clone https://github.com/hoctap970-cloud/rag-document-assistant.git
 cd rag-document-assistant/backend
-$env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+```
+
+Chạy riêng lệnh sau, dán key khi được hỏi rồi nhấn Enter; ký tự nhập sẽ được che:
+
+```powershell
+$geminiApiKey = Read-Host "Gemini API key" -AsSecureString
+```
+
+Sau khi nhập xong, chạy trong cùng Terminal:
+
+```powershell
+$env:GEMINI_API_KEY = [System.Net.NetworkCredential]::new("", $geminiApiKey).Password
+$geminiApiKey.Dispose()
+Remove-Variable geminiApiKey
 .\mvnw.cmd spring-boot:run
 ```
 

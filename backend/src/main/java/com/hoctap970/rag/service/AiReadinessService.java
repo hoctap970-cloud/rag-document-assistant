@@ -21,7 +21,7 @@ public class AiReadinessService {
 
     public synchronized AiReadinessResponse check() {
         if (!models.isConfigured()) return result(false, "Chưa cấu hình", "Chưa cấu hình",
-                "Đặt GEMINI_API_KEY trong Run Configuration của IntelliJ rồi chạy lại.");
+                    "Đặt GEMINI_API_KEY trong terminal hoặc cấu hình chạy của IDE rồi khởi động lại ứng dụng.");
         String chat = "Chưa đạt", embedding = "Chưa đạt";
         StringBuilder advice = new StringBuilder();
         try {

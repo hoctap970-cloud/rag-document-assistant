@@ -13,7 +13,7 @@ public final class AiFailureMessages {
             return operation + " Gemini đang giới hạn quota. Chờ ít nhất 60 giây rồi thử lại; nếu vẫn lỗi, kiểm tra quota trong Google AI Studio.";
         }
         if (details.contains("401") || details.contains("403") || details.contains("api_key_invalid") || details.contains("permission_denied")) {
-            return operation + " API key không hợp lệ hoặc thiếu quyền. Kiểm tra GEMINI_API_KEY trong IntelliJ rồi chạy lại ứng dụng.";
+            return operation + " API key không hợp lệ hoặc thiếu quyền. Kiểm tra GEMINI_API_KEY trong môi trường chạy rồi khởi động lại ứng dụng.";
         }
         if (details.contains("404") || details.contains("not_found")) {
             return operation + " Model không khả dụng với tài khoản. Kiểm tra tên model và quyền truy cập trong Google AI Studio.";

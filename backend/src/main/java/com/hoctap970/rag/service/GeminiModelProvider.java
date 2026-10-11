@@ -39,7 +39,6 @@ public class GeminiModelProvider {
                     chatModel = new QuotaAwareChatModel(GoogleGenAiChatModel.builder()
                             .apiKey(properties.apiKey())
                             .modelName(properties.chatModel())
-                            .temperature(0.0)
                             .maxOutputTokens(properties.maxOutputTokens())
                             .timeout(Duration.ofSeconds(properties.timeoutSeconds()))
                             .maxRetries(0)
@@ -93,7 +92,7 @@ public class GeminiModelProvider {
     private void requireApiKey() {
         if (!isConfigured()) {
             throw new AiConfigurationException(
-                    "Chưa cấu hình GEMINI_API_KEY. Hãy thêm biến môi trường này vào Run Configuration của IntelliJ rồi chạy lại ứng dụng."
+                    "Chưa cấu hình GEMINI_API_KEY. Hãy thêm biến môi trường này vào terminal hoặc cấu hình chạy của IDE rồi khởi động lại ứng dụng."
             );
         }
     }

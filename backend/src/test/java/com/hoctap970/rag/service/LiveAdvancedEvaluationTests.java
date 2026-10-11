@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.*;
 class LiveAdvancedEvaluationTests {
     @Test void answersNewScannedAndMergedTableQuestionsWithoutBorrowingOtherFiles() throws Exception {
         var models = new GeminiModelProvider(new GeminiProperties(System.getenv("GEMINI_API_KEY"),
-                System.getenv().getOrDefault("GEMINI_CHAT_MODEL", "gemini-2.5-flash"),
+                System.getenv().getOrDefault("GEMINI_CHAT_MODEL", "gemini-3.8-flash"),
                 System.getenv().getOrDefault("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"), 768, 8192, 120));
         var properties = new RagProperties(1500, 220, 800, 14, .35, 40, 48000, 24000, 1, true);
         var parser = new DocumentParserService(new DocumentVisionService(models), new ParsingProperties(true, 250, 40));

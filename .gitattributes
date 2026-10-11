@@ -1,0 +1,5 @@
+# Keep source and generated frontend assets consistent across Windows and Linux.
+* text=auto eol=lf
+
+# Windows command scripts use their native line endings.
+*.cmd text eol=crlf

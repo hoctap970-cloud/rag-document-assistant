@@ -17,7 +17,7 @@
 - Internet để tải dependencies và gọi Gemini.
 - `GEMINI_API_KEY` có quyền sử dụng model và quota phù hợp.
 
-Mặc định dùng `gemini-2.5-flash` và `gemini-embedding-001` (768 chiều). Có thể đổi bằng `GEMINI_CHAT_MODEL` và `GEMINI_EMBEDDING_MODEL`.
+Mặc định dùng `gemini-3.8-flash` và `gemini-embedding-001` (768 chiều). Có thể đổi bằng `GEMINI_CHAT_MODEL` và `GEMINI_EMBEDDING_MODEL` theo quyền truy cập và quota của tài khoản. Google hiện giới hạn quyền truy cập Gemini 2.5 cho tài khoản từng dùng model này; tài khoản mới nên dùng model mới hơn. [Thông báo của Google](https://ai.google.dev/gemini-api/docs/deprecations)
 
 ## Chạy ứng dụng
 
@@ -38,9 +38,11 @@ Sau khi ứng dụng chạy, upload tài liệu rồi đặt câu hỏi. Bấm `
 
 ## Kiểm thử và đóng gói
 
+Mở terminal tại thư mục gốc `rag-document-assistant` rồi chạy:
+
 ```powershell
 cd backend
-.\mvnw.cmd clean test package
+.\mvnw.cmd clean package
 java -jar target/backend-0.0.1-SNAPSHOT.jar
 ```
 
@@ -50,7 +52,7 @@ Kiểm thử thường dùng model giả và không gọi Gemini. Các bài đá
 
 Mã nguồn nằm trong `frontend/`; bundle chạy được nằm trong `backend/src/main/resources/static`. **Không cần Node/npm để chạy ứng dụng Java từ repository.**
 
-Khi sửa frontend, dùng Node tương thích với `frontend/package.json` (khuyến nghị dòng Node24 từ 24.15.0):
+Khi sửa frontend, dùng Node tương thích với `frontend/package.json` (khuyến nghị dòng Node24 từ 24.15.0). Mở terminal tại thư mục gốc `rag-document-assistant` rồi chạy:
 
 ```powershell
 cd frontend

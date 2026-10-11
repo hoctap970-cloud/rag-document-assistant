@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "RAG - localhost 8080",
+      "request": "launch",
+      "mainClass": "com.hoctap970.rag.BackendApplication",
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "internalConsoleOptions": "openOnSessionStart",
+      "env": {
+        "GEMINI_API_KEY": "${input:geminiApiKey}",
+        "SERVER_PORT": "8080"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "geminiApiKey",
+      "type": "promptString",
+      "description": "Dán Gemini API key của bạn rồi nhấn Enter",
+      "password": true
+    }
+  ]
+}
